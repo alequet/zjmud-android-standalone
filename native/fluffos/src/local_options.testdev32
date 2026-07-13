@@ -1,0 +1,10 @@
+#include "local_options.testdev"
+
+#undef PACKAGE_DB
+#undef USE_MYSQL
+#undef USE_POSTGRES
+#undef USE_SQLITE3
+
+#undef PACKAGE_CRYPTO
+#undef PACKAGE_PCRE
+#undef PACKAGE_PARSER

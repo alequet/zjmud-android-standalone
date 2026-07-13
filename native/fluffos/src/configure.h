@@ -1,0 +1,45 @@
+#ifndef FLUFFOS_ANDROID_CONFIGURE_H
+#define FLUFFOS_ANDROID_CONFIGURE_H
+
+#define HAVE_ALLOCA 1
+#define HAVE_ALLOCA_H 1
+#define HAVE_ARPA_INET_H 1
+#define HAVE_ARPA_TELNET_H 1
+#define HAVE_CXX11 1
+#define HAVE_DIRENT_H 1
+#define HAVE_FCNTL_H 1
+#define HAVE_FLOAT_H 1
+#define HAVE_INTTYPES_H 1
+#define HAVE_LIBEVENT 1
+#define HAVE_LIMITS_H 1
+#define HAVE_LOCALE_H 1
+#define HAVE_MALLOC_H 1
+#define HAVE_NETDB_H 1
+#define HAVE_NETINET_IN_H 1
+#define HAVE_STDDEF_H 1
+#define HAVE_STDINT_H 1
+#define HAVE_STDLIB_H 1
+#define HAVE_STRINGS_H 1
+#define HAVE_STRING_H 1
+#define HAVE_STRUCT_STAT_ST_RDEV 1
+#define HAVE_SYS_IOCTL_H 1
+#define HAVE_SYS_PARAM_H 1
+#define HAVE_SYS_RESOURCE_H 1
+#define HAVE_SYS_SOCKET_H 1
+#define HAVE_SYS_STAT_H 1
+#define HAVE_SYS_TIME_H 1
+#define HAVE_SYS_TYPES_H 1
+#define HAVE_SYS_WAIT_H 1
+#define HAVE_TIME_H 1
+#define HAVE_UNISTD_H 1
+#define HAVE_ZLIB 1
+
+#define PACKAGE_NAME "FluffOS"
+#define PACKAGE_STRING "FluffOS 3.0.20170907 Android"
+#define PACKAGE_TARNAME "fluffos"
+#define PACKAGE_VERSION "3.0.20170907"
+#define SIZEOF_CHAR_P 8
+#define SIZEOF_INT 4
+#define STDC_HEADERS 1
+
+#endif

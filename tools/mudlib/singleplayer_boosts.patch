@@ -1,0 +1,103 @@
+--- a/adm/daemons/logind.c
++++ b/adm/daemons/logind.c
+@@ -304,0 +305,3 @@
++	// Every account is local and owner-controlled in the Android build.
++	SECURITY_D->set_status(user, "(admin)");
++
+--- a/clone/user/user.c
++++ b/clone/user/user.c
+@@ -66,1 +66,1 @@
+-int is_admin()  { return admin_flag == 1222; }
++int is_admin()  { return admin_flag == 1222 || wizhood(this_object()) == "(admin)"; }
+--- a/cmds/arch/promote.c
++++ b/cmds/arch/promote.c
+@@ -13,1 +13,1 @@
+-	if (! VERSION_D->is_release_server() && me->is_admin())
++	if (me->is_admin())
+--- a/cmds/skill/learn.c
++++ b/cmds/skill/learn.c
+@@ -218,6 +218,7 @@
+ 		up_skill_point=me->query_int() + my_skill / 4;
+ 		up_skill_point /= 2;
+ 		up_skill_point=5 + random(up_skill_point);
++		up_skill_point *= 10;
+ 		up_point += up_skill_point;
+ 		me->improve_skill(skill, up_skill_point);
+ 	    	me->receive_damage("jing", jing_cost);
+--- a/cmds/skill/practice.c
++++ b/cmds/skill/practice.c
+@@ -120,6 +120,7 @@
+ 			else
+ 				tmpi = tmpi*6/5;
+ 		}
++		tmpi *= 10;
+ 		if (SKILL_D(skillname)->practice_skill(me))
+ 			me->improve_skill(skillname, tmpi,skill_basic > skill? 0: 1);
+ 		else break;
+--- a/cmds/skill/research.c
++++ b/cmds/skill/research.c
+@@ -216,1 +216,1 @@
+-		me->improve_skill(skill, (improve-1)/2);
++		me->improve_skill(skill, (improve-1)/2 * 10);
+--- a/cmds/skill/study.c
++++ b/cmds/skill/study.c
+@@ -173,7 +173,7 @@
+ 			break;
+ 		}
+ 
+-		me->improve_skill(sname, (int) me->query_skill("literate", 1) / 10 + 1);
++		me->improve_skill(sname, ((int) me->query_skill("literate", 1) / 10 + 1) * 10);
+ 	}
+ 
+ 	if (! i)
+--- a/adm/daemons/questd.c
++++ b/adm/daemons/questd.c
+@@ -251,0 +252,11 @@
++
++	// Boost the final values after the original cap and fallback adjustments.
++	if (flag || b["family_reward"])
++	{
++		exp *= 30;
++		pot *= 30;
++		mar *= 30;
++		shen *= 30;
++		score *= 30;
++		weiwang *= 30;
++	}
+@@ -273,7 +284,7 @@
+ 	who->add("shen", shen);
+ 	who->add("score", score);
+ 	who->add("weiwang", weiwang);
+-	who->add("gongxian",1);
++	who->add("gongxian", (flag || b["family_reward"]) ? 30 : 1);
+ 	if (!who->query("shimen99")) who->add("shimen/today",1);
+       else if (random(666)>2) who->add("shimen/today",1);
+	TOP_D->add_shimen(who);
+@@ -299,0 +311,7 @@
++
++public void delay_family_bonus(object who, mapping b)
++{
++	b["family_reward"] = 1;
++	who->start_call_out((: call_other, __FILE__, "bonus", who, b :), 1);
++}
++
+@@ -869,3 +887,3 @@
+ 		else
+-		if (random(10000) == 1||who->query("skill_bonus_set"))
++		if (random(10000) < 50||who->query("skill_bonus_set"))
+ 			skill_bonus(me, who);
+@@ -1072,3 +1090,3 @@
+ 		else
+-		if (random(10000) == 1||me->query("skill_bonus_set"))
++		if (random(10000) < 50||me->query("skill_bonus_set"))
+ 			skill_bonus(this_object(), me);
+--- a/kungfu/class/generate/killed.c
++++ b/kungfu/class/generate/killed.c
+@@ -572,1 +572,1 @@
+-			QUEST_D->delay_bonus(hob, 
++			QUEST_D->delay_family_bonus(hob, 
+--- a/kungfu/class/generate/test.c
++++ b/kungfu/class/generate/test.c
+@@ -562,1 +562,1 @@
+-			QUEST_D->delay_bonus(hob, 
++			QUEST_D->delay_family_bonus(hob, 

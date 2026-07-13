@@ -1,0 +1,76 @@
+--- a/main.js
++++ b/main.js
+@@ -1,6 +1,8 @@
+ ﻿
+ var sock = localTransport.connect();
+ var loginok = false;
++var loginPending = false;
++var loginError = '';
+ var textcol = '#ddd'; pd_on = 'chat';
+ var dirnw='　',dirn='　',dirne='　',dirw='　',dire='　',dirsw='　',dirso='　',dirse='　',tit = '指文游', titled = tit + '－' + '本地单机';
+ var scrw = $(window).width(), scrh = $(window).height();
+@@ -716,6 +718,7 @@
+ 	});
+ 	chatob.html('');
+ 	chatob.append('<span class="out">欢迎进入'+GetStr("server")+'......</span><br>');
++	if(loginError) chatob.html(loginError+'<br>');
+ 	hudongob.append('<span class="out">请输入账号：</span><br>');
+ 	hudongob.append('<span class="out"><input type="text" value="'+getCookie('myid')+'" id="id"></span><br>');
+ 	hudongob.append('<span class="out">请输入密码：<br></span>');
+@@ -858,6 +861,8 @@
+   setCookie('mypass', mypass);
+   setCookie('auto_login', true);
+ 
++  loginError = '';
++  loginPending = true;
+   chatob.html('登录中......<br>');
+   sock.emit('stream', myid + '║' + mypass + '║' + user_key + '║' + mymail + '\n');
+   hudongob.dialog("close");
+@@ -1135,9 +1140,9 @@
+ 
+ 		if(line.substr(0,6)=='版本验证成功')
+ 		{
+-			if(localStorage.getItem('myid')&&localStorage.getItem('mypass')&&localStorage.getItem('auto_login'))
++			if(getCookie('myid')&&getCookie('mypass')&&getCookie('auto_login'))
+ 			{
+-				logincheck(localStorage.getItem('myid'),localStorage.getItem('mypass'));
++				logincheck(getCookie('myid'),getCookie('mypass'));
+ 			}
+ 			else
+ 			{
+@@ -1148,11 +1153,14 @@
+ 
+ 		if(line.substr(0,8)=='0000008')
+ 		{
++			loginPending = false;
+ 			writechar();
+ 			return;
+ 		}
+ 		if(line.substr(0,8)=='0000007')
+ 		{
++			loginPending = false;
++			chatob.html('欢迎来到'+titled+'！<br>');
+ 			loginok = true;
+ 			//longob.show();
+ 			//默认关闭场景描述
+@@ -1320,7 +1328,18 @@
+ 		console.log('连接成功。');
+ 	});
+ 	sock.on('disconnect', function(){
+-		console.log('断开连接。');
++		if(loginPending)
++		{
++			loginPending = false;
++			loginError = '登录失败，请检查账号或密码，正在重新连接……';
++			delCookie('auto_login');
++			writelogin();
++		}
++		else if(loginok)
++		{
++			loginok = false;
++			chatob.html('连接已断开，正在重新连接……<br>');
++		}
+ 	});
+ 
+ 	var send = function(str) {
+

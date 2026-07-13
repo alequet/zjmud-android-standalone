@@ -1,0 +1,42 @@
+--- a/adm/daemons/logind.c
++++ b/adm/daemons/logind.c
+@@ -397,27 +397,14 @@
+ 		    file_size(startroom + ".c") < 0)
+ 			startroom = START_ROOM;
+ 
+-		if (wizhood(user) != "(admin)" && user->query("id")!="pyh0721") {
+-		if (!wizardp(user) && (user->query("str")+user->query("con")+user->query("dex")+user->query("int"))>(100+user->query("relife/zhuanshi")*4+user->query("gift/lighting")+user->query("level")/10)
+-		&& user->query("id")!="chong1")
+-		{
+-			user->set("startroom", "/d/death/block");
+-			startroom = "/d/death/block";
+-		}
+-
+-		if (!wizardp(user) && present("chuwu dai 2", user))
++		// Release saves created by the legacy online-server anti-cheat jail.
++		if (startroom == "/d/death/block" || startroom == "/d/death/shenxun")
+ 		{
+-			user->set("startroom", "/d/death/block");
+-			startroom = "/d/death/block";
++			user->set("startroom", START_ROOM);
++			startroom = START_ROOM;
++			user->save();
+ 		}
+ 
+-		if (!wizardp(user) && (user->query("experience")-user->query("learned_experience"))>660000 && user->query("zjvip/all_pay")<31500)
+-		{
+-			user->set("startroom", "/d/death/block");
+-			startroom = "/d/death/block";
+-		}
+-		}
+-
+ 		if (! catch(load_object(startroom)))
+ 			user->move(startroom);
+ 		else
+--- a/cmds/imm/summon1.c
++++ b/cmds/imm/summon1.c
+@@ -58,4 +58,3 @@
+ 
+ 	ob->move(environment(me));
+-    ob->set("startroom", "/d/death/block");
+ 

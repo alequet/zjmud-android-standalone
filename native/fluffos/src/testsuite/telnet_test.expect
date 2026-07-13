@@ -1,0 +1,44 @@
+#!/usr/bin/expect
+
+set timeout 10
+set ip [lindex $argv 0]
+set port [lindex $argv 1]
+
+# test basic login
+spawn telnet $ip $port
+expect "> " {
+    send   "who\r"
+}
+expect "> " {
+    send   "quit\r"
+    expect eof
+}
+
+# Test edit
+spawn telnet $ip $port
+expect "> " {
+    send   "ed README\r"
+}
+expect ":" {
+    send   "Z\r"
+}
+expect ":" {
+    send   "q\r"
+}
+expect "> " {
+    send   "quit\r"
+    expect eof
+}
+
+# trigger tests
+set timeout 1200
+set send_slow {1 5}
+spawn telnet $ip $port
+expect "> " {
+    send -s "tests\r"
+}
+
+expect "> " {
+    send "quit\r"
+    expect eof
+}

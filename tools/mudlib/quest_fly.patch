@@ -1,0 +1,27 @@
+--- a/cmds/usr/fly.c
++++ b/cmds/usr/fly.c
+@@ -138,3 +138,4 @@
+ {
+-	object flying, room;
++	object flying, room, target;
++	mapping quest;
+ 	string msg,where,*citys,dir;
+@@ -174,3 +175,17 @@
+ 
+-	if (arg == "home" && stringp(me->query("private_room/position")) && file_size(me->query("private_room/position") + ".c") > 0)
++	if (arg == "quest")
++	{
++		quest = me->query("quest");
++		if (! mapp(quest) || quest["type"] != "kill")
++			quest = me->query("bquest");
++		if (! mapp(quest) || quest["type"] != "kill")
++			return notify_fail("No active kill target.\n");
++
++		target = find_living(quest["id"]);
++		if (! objectp(target) || ! objectp(environment(target)))
++			return notify_fail("The quest target cannot be located.\n");
++
++		room = environment(target);
++	}
++	else if (arg == "home" && stringp(me->query("private_room/position")) && file_size(me->query("private_room/position") + ".c") > 0)
+ 		room = get_object(me->query("private_room/position"));

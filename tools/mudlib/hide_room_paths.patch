@@ -1,0 +1,5 @@
+--- a/cmds/std/go.c
++++ b/cmds/std/go.c
+@@ -280,1 +280,1 @@
+-	if(wizardp(me))
++	if(0 && wizardp(me))
