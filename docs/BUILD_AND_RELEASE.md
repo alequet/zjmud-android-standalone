@@ -49,7 +49,7 @@ gradle/
 
 当前入口为 `tools/import_zjmud.sh`。归档使用排序条目、固定时间戳和无扩展属性的标准
 ZIP；必须能被 Java `ZipInputStream` 完整读出 11,268 个文件。当前确定性 SHA-256 为
-`572ca846597495eb9437816aaf3a6bd87c02681c5ee818f2473149b5b518d745`。
+`b42da894fe609ac5f6f6f08166924aab879b79939b50b6bdae3da44cf42114ed`。
 
 对于 ZIP 中编码异常的文件名，不得由 Java `ZipInputStream` 猜测编码后直接重写。应先
 确定 FluffOS 实际访问的名字字节；若文件未被引用，可在 allowlist 中显式排除；若被引用，

@@ -1,0 +1,29 @@
+--- a/d/shaolin/beilin3.c
++++ b/d/shaolin/beilin3.c
+@@ -64,3 +64,9 @@
+ 
+ 
++		if ((int)me->query_skill("unarmed", 1) < 100)
++		{
++			me->improve_skill("unarmed", (1 + random(me->query("str")*2)) * 500);
++			me->set_temp("stone_learned", 1);
++		}
++
+ 		if ((int)me->query_skill("finger", 1) < 100)
+--- a/clone/book/xisuijing.c
++++ b/clone/book/xisuijing.c
+@@ -7,10 +7,10 @@
+ int do_study(string);
+ 
+ string* skill = ({
+-	"whip",
+-	"finger",
+-	"hand",
++	"unarmed",
+ 	"cuff",
+-	"claw",
+ 	"strike",
++	"finger",
++	"hand",
++	"claw",
+ });

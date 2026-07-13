@@ -44,9 +44,23 @@ perl -ni -e 'print unless m{^/adm/daemons/(messaged|payd)\s*$}' "$WORK_ROOT/payl
 
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/remove_anticheat.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/singleplayer_boosts.patch"
+patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/shaolin_unarmed_rewards.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/quest_fly.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/hide_room_paths.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/static_admins.patch"
+
+perl -pi -e 's/me->improve_skill\("finger", 1 \+ random\(me->query\("str"\)\*2\)\);/me->improve_skill("finger", (1 + random(me->query("str")*2)) * 500);/' "$WORK_ROOT/payload/d/shaolin/beilin3.c"
+perl -pi -e 's/me->improve_skill\("claw", 1 \+ random\(me->query\("str"\)\*2\)\);/me->improve_skill("claw", (1 + random(me->query("str")*2)) * 500);/' "$WORK_ROOT/payload/d/shaolin/beilin3.c"
+perl -pi -e 's/me->improve_skill\("strike", 1 \+ me->query\("str"\)\*2\);/me->improve_skill("strike", (1 + me->query("str")*2) * 500);/' "$WORK_ROOT/payload/d/shaolin/beilin3.c"
+perl -pi -e 's/me->improve_skill\("cuff", 1 \+ random\(me->query\("str"\)\*2\)\);/me->improve_skill("cuff", (1 + random(me->query("str")*2)) * 500);/' "$WORK_ROOT/payload/d/shaolin/beilin3.c"
+perl -pi -e 's/me->improve_skill\("hand", 1 \+ random\(me->query\("int"\)\*2\)\);/me->improve_skill("hand", (1 + random(me->query("int")*2)) * 500);/' "$WORK_ROOT/payload/d/shaolin/beilin3.c"
+perl -pi -e 's/me->improve_skill\(skill\[i-1\], 5 \+ random\(30\)\);/me->improve_skill(skill[i-1], (5 + random(30)) * 500);/' "$WORK_ROOT/payload/clone/book/xisuijing.c"
+
+if [[ "$(LC_ALL=C rg -c 'improve_skill.*\* 500\);' "$WORK_ROOT/payload/d/shaolin/beilin3.c")" != "6" ||
+      "$(LC_ALL=C rg -c 'improve_skill.*\* 500\);' "$WORK_ROOT/payload/clone/book/xisuijing.c")" != "1" ]]; then
+  echo "Shaolin unarmed reward patch validation failed." >&2
+  exit 1
+fi
 
 perl -pi -e 's/\+environment\(ob\)->query\("short"\)\+NOR/\+ZJURL("cmds:fly quest")+environment(ob)->query("short")+NOR/' \
   "$WORK_ROOT/payload/clone/vip/zbagua.c" \
