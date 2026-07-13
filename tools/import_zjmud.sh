@@ -48,6 +48,38 @@ patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/shaolin_unarmed_
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/quest_fly.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/hide_room_paths.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/static_admins.patch"
+patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/full_character_save.patch"
+install -m 0644 "$REPO_ROOT/tools/mudlib/fullsave.c" "$WORK_ROOT/payload/feature/fullsave.c"
+
+perl -pi -e 's/cost = me->query_skill\(skl_id, 1\) \/ 2 \+ 100;/cost = (me->query_skill(skl_id, 1) \/ 2 + 100) * 20;/' \
+  "$WORK_ROOT/payload/cmds/skill/derive.c"
+
+if [[ "$(LC_ALL=C rg -c 'inherit "/feature/fullsave";' "$WORK_ROOT/payload/clone/user/user.c")" != "1" ||
+      "$(LC_ALL=C rg -c 'save_full_character_state\(\);' "$WORK_ROOT/payload/clone/user/user.c")" != "1" ||
+      "$(LC_ALL=C rg -c 'prepare_full_character_restore\(\);' "$WORK_ROOT/payload/clone/user/user.c")" != "1" ||
+      "$(LC_ALL=C rg -c 'query_full_save_room\(\)' "$WORK_ROOT/payload/adm/daemons/logind.c")" != "1" ]]; then
+  echo "Full character persistence patch validation failed." >&2
+  exit 1
+fi
+
+if [[ "$(LC_ALL=C rg -F -c 'cost = (me->query_skill(skl_id, 1) / 2 + 100) * 20;' \
+        "$WORK_ROOT/payload/cmds/skill/derive.c")" != "1" ]]; then
+  echo "Jiqu absorption multiplier patch validation failed." >&2
+  exit 1
+fi
+
+family_reward_multiplier_count="$(LC_ALL=C rg -c \
+  '^\s*(exp|pot|mar|shen|score|weiwang) \*= 100;$' \
+  "$WORK_ROOT/payload/adm/daemons/questd.c")"
+family_skill_chance_count="$(LC_ALL=C rg -F -c \
+  'random(10000) < 100' "$WORK_ROOT/payload/adm/daemons/questd.c")"
+if [[ "$family_reward_multiplier_count" != "6" ||
+      "$(LC_ALL=C rg -F -c 'who->add("gongxian", (flag || b["family_reward"]) ? 100 : 1);' \
+        "$WORK_ROOT/payload/adm/daemons/questd.c")" != "1" ||
+      "$family_skill_chance_count" != "2" ]]; then
+  echo "Family quest reward boost validation failed." >&2
+  exit 1
+fi
 
 perl -pi -e 's/me->improve_skill\("finger", 1 \+ random\(me->query\("str"\)\*2\)\);/me->improve_skill("finger", (1 + random(me->query("str")*2)) * 500);/' "$WORK_ROOT/payload/d/shaolin/beilin3.c"
 perl -pi -e 's/me->improve_skill\("claw", 1 \+ random\(me->query\("str"\)\*2\)\);/me->improve_skill("claw", (1 + random(me->query("str")*2)) * 500);/' "$WORK_ROOT/payload/d/shaolin/beilin3.c"
@@ -96,6 +128,14 @@ perl -0pi -e 's#\s*<script src="http://cdn\.bootcss\.com/blueimp-md5/1\.1\.0/js/
 perl -0pi -e 's/var sock = io\.connect\(\);/var sock = localTransport.connect();/' "$ASSET_ROOT/web/main.js"
 perl -ni -e 'print unless /value="游戏充值"|value="游戏主页"/' "$ASSET_ROOT/web/main.js"
 patch -s -p1 -d "$ASSET_ROOT/web" < "$REPO_ROOT/tools/web/main.android.patch"
+perl -0pi -e 's/\n\tdocument\.oncontextmenu = function\(\) \{\n\t\treturn false;\n\t\}//' \
+  "$ASSET_ROOT/web/main.js" "$ASSET_ROOT/web/js/main.js"
+
+if LC_ALL=C rg -q 'document\.oncontextmenu' \
+     "$ASSET_ROOT/web/main.js" "$ASSET_ROOT/web/js/main.js"; then
+  echo "Web text-selection context menu is still disabled." >&2
+  exit 1
+fi
 
 install -m 0644 "$WORK_ROOT/zjmud-runtime.zip" "$ASSET_ROOT/runtime/zjmud-runtime.zip"
 

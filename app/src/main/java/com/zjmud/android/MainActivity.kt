@@ -63,6 +63,7 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT,
             )
+            isLongClickable = true
             setBackgroundColor(0xff000000.toInt())
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true

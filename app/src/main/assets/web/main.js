@@ -55,9 +55,6 @@ window.onload = function() {
 			return false;
 		}
 	};
-	document.oncontextmenu = function() {
-		return false;
-	}
 }
 
 function htmlEncode ( str ) {

@@ -1,0 +1,23 @@
+--- a/clone/user/user.c
++++ b/clone/user/user.c
+@@ -9,0 +10,1 @@
++inherit "/feature/fullsave";
+@@ -143,0 +145,1 @@
++		save_full_character_state();
+@@ -165,0 +168,2 @@
++	if (res)
++		prepare_full_character_restore();
+@@ -274,1 +277,6 @@
+-	restore_autoload();
++	if (has_full_character_state())
++	{
++		restore_full_character_state();
++		clean_up_autoload();
++	} else
++		restore_autoload();
+--- a/adm/daemons/logind.c
++++ b/adm/daemons/logind.c
+@@ -398,0 +399,3 @@
++		if (stringp(startroom = user->query_full_save_room()))
++			;
++		else

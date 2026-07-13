@@ -50,6 +50,12 @@
  	}
  
  	if (! i)
+--- a/cmds/skill/derive.c
++++ b/cmds/skill/derive.c
+@@ -111,0 +112,3 @@
++	if (me->query_temp("derived_point") > 0 &&
++	    cost > me->query_temp("derived_point"))
++		cost = me->query_temp("derived_point");
 --- a/adm/daemons/questd.c
 +++ b/adm/daemons/questd.c
 @@ -251,0 +252,11 @@
@@ -57,19 +63,19 @@
 +	// Boost the final values after the original cap and fallback adjustments.
 +	if (flag || b["family_reward"])
 +	{
-+		exp *= 30;
-+		pot *= 30;
-+		mar *= 30;
-+		shen *= 30;
-+		score *= 30;
-+		weiwang *= 30;
++		exp *= 100;
++		pot *= 100;
++		mar *= 100;
++		shen *= 100;
++		score *= 100;
++		weiwang *= 100;
 +	}
 @@ -273,7 +284,7 @@
  	who->add("shen", shen);
  	who->add("score", score);
  	who->add("weiwang", weiwang);
 -	who->add("gongxian",1);
-+	who->add("gongxian", (flag || b["family_reward"]) ? 30 : 1);
++	who->add("gongxian", (flag || b["family_reward"]) ? 100 : 1);
  	if (!who->query("shimen99")) who->add("shimen/today",1);
        else if (random(666)>2) who->add("shimen/today",1);
 	TOP_D->add_shimen(who);
@@ -84,12 +90,12 @@
 @@ -869,3 +887,3 @@
  		else
 -		if (random(10000) == 1||who->query("skill_bonus_set"))
-+		if (random(10000) < 50||who->query("skill_bonus_set"))
++		if (random(10000) < 100||who->query("skill_bonus_set"))
  			skill_bonus(me, who);
 @@ -1072,3 +1090,3 @@
  		else
 -		if (random(10000) == 1||me->query("skill_bonus_set"))
-+		if (random(10000) < 50||me->query("skill_bonus_set"))
++		if (random(10000) < 100||me->query("skill_bonus_set"))
  			skill_bonus(this_object(), me);
 --- a/kungfu/class/generate/killed.c
 +++ b/kungfu/class/generate/killed.c
