@@ -1,42 +1,33 @@
+diff --git a/adm/daemons/logind.c b/adm/daemons/logind.c
+index e26c7b2..daddfff 100644
 --- a/adm/daemons/logind.c
 +++ b/adm/daemons/logind.c
-@@ -397,27 +397,14 @@
- 		    file_size(startroom + ".c") < 0)
- 			startroom = START_ROOM;
- 
--		if (wizhood(user) != "(admin)" && user->query("id")!="pyh0721") {
--		if (!wizardp(user) && (user->query("str")+user->query("con")+user->query("dex")+user->query("int"))>(100+user->query("relife/zhuanshi")*4+user->query("gift/lighting")+user->query("level")/10)
+@@ -400,2 +400,2 @@ varargs void enter_world(object ob, object user, int silent)
+-		if ((user->query("str")+user->query("con")+user->query("dex")+user->query("int"))>(100+user->query("relife/zhuanshi")*4+user->query("gift/lighting")+user->query("level")/10)
 -		&& user->query("id")!="chong1")
++		// Release saves created by the legacy online-server anti-cheat jail.
++		if (startroom == "/d/death/block" || startroom == "/d/death/shenxun")
+@@ -403,14 +403,3 @@ varargs void enter_world(object ob, object user, int silent)
+-			user->set("startroom", "/d/death/block");
+-			startroom = "/d/death/block";
+-		}
+-
+-		if (present("chuwu dai 2", user))
 -		{
 -			user->set("startroom", "/d/death/block");
 -			startroom = "/d/death/block";
 -		}
 -
--		if (!wizardp(user) && present("chuwu dai 2", user))
-+		// Release saves created by the legacy online-server anti-cheat jail.
-+		if (startroom == "/d/death/block" || startroom == "/d/death/shenxun")
- 		{
+-		if ( (user->query("experience")-user->query("learned_experience"))>660000 && user->query("zjvip/all_pay")<31500)
+-		{
 -			user->set("startroom", "/d/death/block");
 -			startroom = "/d/death/block";
 +			user->set("startroom", START_ROOM);
 +			startroom = START_ROOM;
 +			user->save();
- 		}
- 
--		if (!wizardp(user) && (user->query("experience")-user->query("learned_experience"))>660000 && user->query("zjvip/all_pay")<31500)
--		{
--			user->set("startroom", "/d/death/block");
--			startroom = "/d/death/block";
--		}
--		}
--
- 		if (! catch(load_object(startroom)))
- 			user->move(startroom);
- 		else
+diff --git a/cmds/imm/summon1.c b/cmds/imm/summon1.c
+index 05b533a..7ad041d 100644
 --- a/cmds/imm/summon1.c
 +++ b/cmds/imm/summon1.c
-@@ -58,4 +58,3 @@
- 
- 	ob->move(environment(me));
+@@ -59 +58,0 @@ int main(object me, string arg)
 -    ob->set("startroom", "/d/death/block");
- 

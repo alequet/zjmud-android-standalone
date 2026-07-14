@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly EXPECTED_SHA256="2eee2ab12f81a3a7a7f5824a552f85f9d287c6d3dbfb03c4b1e2c0bfc2578ba0"
-readonly SOURCE_ZIP="${1:-$HOME/zjmud-main.zip}"
+readonly ZJMUD_COMMIT="c56a166380d74858d7b4f0ba2817478ccea6b83d"
+readonly EXPECTED_SHA256="61ce705fd694bcc3ba4619c4a475e020fe4237df226fb827697de0d682e8b014"
+readonly EXPECTED_ZJMUD_PATCH_SHA256="e1f5157a544ae8523b78d2b8bd62a4d4f4bc1b0800e5e8f8c35a9604812c3cbe"
+readonly EXPECTED_PATCHED_WEB_SHA256="d5ce16fb65a1beb9d39989244b832e4d776ff0db193f75074e8b69dad77b121c"
+readonly SOURCE_ZIP="${1:-$HOME/zjmud-c56a166.zip}"
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly ASSET_ROOT="$REPO_ROOT/app/src/main/assets"
+readonly ZJMUD_PATCH="$REPO_ROOT/tools/zjmud_patch/web_frontend.patch"
 readonly WORK_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/zjmud-import.XXXXXX")"
 
 cleanup() {
@@ -21,13 +25,32 @@ fi
 mkdir -p "$WORK_ROOT/extracted" "$WORK_ROOT/payload" "$WORK_ROOT/web"
 bsdtar -xf "$SOURCE_ZIP" -C "$WORK_ROOT/extracted"
 
-readonly SOURCE_ROOT="$WORK_ROOT/extracted/zjmud-main"
+source_roots=("$WORK_ROOT"/extracted/*)
+if [[ "${#source_roots[@]}" != "1" || ! -d "${source_roots[0]}" ]]; then
+  echo "Expected exactly one source directory in the zjmud archive." >&2
+  exit 1
+fi
+readonly SOURCE_ROOT="${source_roots[0]}"
 for required in config.ini adm clone cmds d data include inherit kungfu web/www/index.html; do
   if [[ ! -e "$SOURCE_ROOT/$required" ]]; then
     echo "Missing required source path: $required" >&2
     exit 1
   fi
 done
+
+zjmud_patch_sha256="$(shasum -a 256 "$ZJMUD_PATCH" | awk '{print $1}')"
+if [[ "$zjmud_patch_sha256" != "$EXPECTED_ZJMUD_PATCH_SHA256" ]]; then
+  echo "Unexpected zjmud patch SHA-256: $zjmud_patch_sha256" >&2
+  exit 1
+fi
+
+# Reproduce the repaired Web frontend before any Android-only transformation.
+patch -s -p1 -d "$SOURCE_ROOT" < "$ZJMUD_PATCH"
+patched_web_sha256="$(shasum -a 256 "$SOURCE_ROOT/web/www/main.js" | awk '{print $1}')"
+if [[ "$patched_web_sha256" != "$EXPECTED_PATCHED_WEB_SHA256" ]]; then
+  echo "Unexpected patched zjmud Web SHA-256: $patched_web_sha256" >&2
+  exit 1
+fi
 
 rsync -a \
   --exclude='.DS_Store' \
@@ -378,12 +401,16 @@ install -m 0644 "$WORK_ROOT/zjmud-runtime.zip" "$ASSET_ROOT/runtime/zjmud-runtim
 
 runtime_sha256="$(shasum -a 256 "$ASSET_ROOT/runtime/zjmud-runtime.zip" | awk '{print $1}')"
 runtime_bytes="$(stat -f '%z' "$ASSET_ROOT/runtime/zjmud-runtime.zip")"
-printf 'source_sha256=%s\nruntime_sha256=%s\nruntime_bytes=%s\n' \
-  "$actual_sha256" "$runtime_sha256" "$runtime_bytes" \
+printf 'source_commit=%s\nsource_sha256=%s\nzjmud_patch_sha256=%s\npatched_web_sha256=%s\nruntime_sha256=%s\nruntime_bytes=%s\n' \
+  "$ZJMUD_COMMIT" "$actual_sha256" "$zjmud_patch_sha256" "$patched_web_sha256" \
+  "$runtime_sha256" "$runtime_bytes" \
   > "$ASSET_ROOT/runtime/manifest.properties"
 cat <<EOF
 Imported zjmud assets
+source_commit=$ZJMUD_COMMIT
 source_sha256=$actual_sha256
+zjmud_patch_sha256=$zjmud_patch_sha256
+patched_web_sha256=$patched_web_sha256
 runtime_sha256=$runtime_sha256
 runtime_bytes=$runtime_bytes
 EOF
