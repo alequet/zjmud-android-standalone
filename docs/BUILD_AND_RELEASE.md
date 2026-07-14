@@ -20,8 +20,8 @@ docs/
 gradle/
 ```
 
-不要直接把上游 zjmud ZIP 解压后全部提交。导入工具必须先应用仓库中的 `zjmud_patch`，
-再产生可审计、可重复的结果。
+不要直接把 `~/zjmud-main.zip` 解压后全部提交。该本地快照已经包含 `zjmud_patch` 的 Web
+修复；导入工具必须校验这种对应关系并产生可审计、可重复的结果。
 
 本机 Android Studio、SDK 和 Pixel 7 AVD 的已确认版本及缺失前置项见
 `DEVELOPMENT_ENVIRONMENT.md`。
@@ -34,26 +34,26 @@ gradle/
 输入仅允许：
 
 ```text
-MudRen/zjmud commit c56a166380d74858d7b4f0ba2817478ccea6b83d 的 GitHub ZIP
-SHA-256: 61ce705fd694bcc3ba4619c4a475e020fe4237df226fb827697de0d682e8b014
+~/zjmud-main.zip
+SHA-256: 2eee2ab12f81a3a7a7f5824a552f85f9d287c6d3dbfb03c4b1e2c0bfc2578ba0
 ```
 
 导入流程：
 
 1. 校验输入 ZIP 的 SHA-256。
-2. 校验并应用 `tools/zjmud_patch/web_frontend.patch`，复现 Android 移植前已经调通的 zjmud Web 前端。
-3. 校验补丁后 `web/www/main.js` 的 SHA-256。
+2. 校验 `tools/zjmud_patch/web_frontend.patch`，确认公开上游到本地修复版的差异未漂移。
+3. 校验本地 ZIP 中 `web/www/main.js` 已经是应用该补丁后的固定版本；不重复应用补丁。
 4. 读取中央目录并审计文件名编码、路径穿越、绝对路径和重复条目。
 5. 按 allowlist 提取 mudlib 运行目录和 `config.ini`。
-6. 导入补丁后的 `web/www`，保留本地 JS/CSS/图片资源。
+6. 导入本地已修复的 `web/www`，保留本地 JS/CSS/图片资源。
 7. 排除 Windows EXE/DLL、`start-64.bat`、`node_modules`、`.DS_Store` 和已确认无用的历史包。
 8. 对 Web 页面应用最小、可复查的 Android 离线传输补丁。
 9. 生成 `payload-manifest.json`，记录每个文件的路径、长度和 SHA-256。
 10. 打成单一 payload 归档，作为 APK asset。
 
 当前入口为 `tools/import_zjmud.sh`。归档使用排序条目、固定时间戳和无扩展属性的标准
-ZIP；必须能被 Java `ZipInputStream` 完整读出 22,863 个文件。当前确定性 SHA-256 为
-`626e0c3834a8955504ccc90fa4c75b629423e6fa5fa9d0866f82c36b7107ab93`。
+ZIP；必须能被 Java `ZipInputStream` 完整读出 11,271 个文件。当前确定性 SHA-256 为
+`bc078b0fb64d2a5b85ae673a77ed58784b31fb963bb34fbe6f70ed14b074221a`。
 
 对于 ZIP 中编码异常的文件名，不得由 Java `ZipInputStream` 猜测编码后直接重写。应先
 确定 FluffOS 实际访问的名字字节；若文件未被引用，可在 allowlist 中显式排除；若被引用，

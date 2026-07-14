@@ -2,8 +2,8 @@
 
 ## 1. 产品目标
 
-将固定公开提交的 zjmud 源码先应用仓库中的 `zjmud_patch`，再整体转化为一款纯单机
-Android 应用：
+将已经包含 `zjmud_patch` Web 修复的本地 `~/zjmud-main.zip` 整体转化为一款纯单机
+Android 应用；公开仓库只作为原生来源追溯，不直接作为构建输入：
 
 1. 启动应用即启动本地 zjmud 服务端。
 2. 应用主界面呈现压缩包中的原 Web UI。

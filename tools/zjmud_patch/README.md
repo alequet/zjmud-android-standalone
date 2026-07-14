@@ -19,5 +19,8 @@ height. After applying the patch, `web/www/main.js` has SHA-256:
 d5ce16fb65a1beb9d39989244b832e4d776ff0db193f75074e8b69dad77b121c
 ```
 
-`tools/import_zjmud.sh` applies and validates this patch automatically before
-the Android-only mudlib and WebView patches.
+Local builds use the already repaired `~/zjmud-main.zip`. The import script
+validates both this patch file and the repaired `web/www/main.js` hash, but does
+not apply the patch a second time. The public upstream repository is provenance,
+not the local build input; it must receive this patch before it can be used to
+prepare an equivalent source snapshot.
