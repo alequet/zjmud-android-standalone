@@ -264,6 +264,33 @@ Web 客户端不再覆盖 `document.oncontextmenu`，Android `WebView` 保持长
 - 少林石桌和洗髓经的奖励技能统一为 `unarmed`、`cuff`、`strike`、`finger`、`hand`、
   `claw` 六项基本空手。两处保留各自原有的技能等级范围、前置门槛、消耗和随机公式，
   只把每次实际增加的技能点乘以 500。
+- 整点异域挑战的日本、天竺和西洋挑战者会通过 `ic` 发布战败消息。原版频道配置随后把
+  本地消息转交 `gchannel`，而单机版按网络边界移除了 `dns_master`，因此挑战者心跳会在
+  `gchannel.c` 加载该守护进程时报执行时段错误。导入时移除 `wiz/ic/ultra` 的跨服字段，
+  并以离线空实现替换 `gchannel`，因此旧映射或残余调用也不会触碰 `dns_master`；本地频道
+  显示保持不变。跨服私聊、回复、查询和 telnet 入口在加载网络服务前明确拒绝。
+- 同次审计还修复了挑战者死亡和胜利结算中的 `call_out("destruct", ...)`：改由对象自身
+  包装函数调用 `destruct` efun，并让空伤害映射、零总伤害和非正掉落概率安全跳过。正常
+  经验、潜能、威望、阅历及掉落公式不变。
+- 单机导入将所有仍可被本地命令懒加载的联网守护替换为离线实现：`dns_master` 返回空
+  MUD/服务拓扑，`messaged` 保留本地玩家查找、私聊和输出 API，`versiond` 保留本地状态
+  并拒绝同步、拉取和发布，`cmwhod`、`payd` 与 telnet shadow 为无网络空实现。旧 network
+  service 即使被残余路径调用，也只能经过离线 `dns_master`，不会访问 socket efun。
+- 导入阶段扫描完整 payload，要求 `socket_create/bind/listen/accept/connect/write/close/release/
+  acquire/status/address/error`、`resolve()`、`external_start()` 与 `db_connect()` 调用数量为零。
+  同时禁止调用未随单机版提供的 `INETD`、`NETMAIL_D`、`TELNET_D`、`FTP_D` 等联网守护。
+  该约束覆盖预载、命令懒加载、NPC 心跳和管理员路径，不依赖仅移除某一个入口。
+- `adm/daemons/network/services` 下 22 个旧 inter-MUD service 和 `network/fs.c` 统一替换为宽
+  API 离线对象。发送、收包与远程查询返回 no-op 或离线结果，状态查询返回空值，因此不会
+  继续链式加载原版不存在的 `INETD`、`NETMAIL_D` 或其他 service。
+- Web 客户端只保留本地 `LocalMudConnection` 登录和注册协议；根 `main.js` 同步覆盖历史
+  `js/main.js` 副本，并移除旧站 API AJAX、充值页和主页打开函数中的外部 URL。WebView URL
+  allowlist 仍作为第二层边界。自动登录可能早于登录对话框初始化，所有关闭操作先检查
+  jQuery UI 初始化标记，避免本地连接成功后因 `dialog("close")` 抛错中断登录流程。
+- WebView 的 Safe Browsing 与使用统计上报在设置和 manifest 两层关闭；此外在创建 WebView
+  前安装全局代理覆盖，除本地资产域名外的流量全部指向不可用的 `127.0.0.1:9`。不支持代理
+  覆盖的 WebView 失败关闭并不创建页面。页面请求仍由本地资源 allowlist 拦截，因此首次创建
+  WebView 数据时，提供方自身的 SafeNet/Variations 初始化也不能建立设备外连接。
 - 管理员移动房间时使用与普通玩家相同的到达提示，只显示房间名称，不把 mudlib 完整
   对象路径输出到中央控制台。
 

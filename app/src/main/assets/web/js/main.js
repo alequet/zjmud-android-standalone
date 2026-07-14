@@ -1,11 +1,13 @@
 ﻿
-var sock = io.connect();
+var sock = localTransport.connect();
 var loginok = false;
+var loginPending = false;
+var loginError = '';
 var textcol = '#ddd'; pd_on = 'chat';
-var dirnw='　',dirn='　',dirne='　',dirw='　',dire='　',dirsw='　',dirso='　',dirse='　',tit = '指文游', titled = tit + '－' + '书剑江湖';
+var dirnw='　',dirn='　',dirne='　',dirw='　',dire='　',dirsw='　',dirso='　',dirse='　',tit = '指文游', titled = tit + '－' + '本地单机';
 var scrw = $(window).width(), scrh = $(window).height();
 var dialog_title = "",strsss = "";
-var ansi_flag = false;
+var ansi_flag = true;
 var chatob = $('div#chat');
 var longob = $('div#long');
 var leftob = $('div#mleft');
@@ -24,6 +26,22 @@ var tmenuob = $('div#tmenu');
 var Wp1 = '#$dm@%!*33'; //客户端key验证码
 var user_key = 'Abcd1234Zwy';
 var chat_height = 0;
+
+function setChatMode(wide) {
+	localStorage.setItem('chat_mode', wide ? 'wide' : 'narrow');
+	if (wide) {
+		chatob.height(140);
+		chat_height = 100;
+	} else {
+		chatob.height(40);
+		chat_height = 0;
+	}
+	var btn = $('input#toggleChatBtn');
+	if (btn.length) {
+		btn.attr('value', wide ? '聊天(宽)' : '聊天(窄)');
+	}
+}
+
 
 //防止查看源码(禁止鼠标左右功能键)
 window.onload = function() {
@@ -100,6 +118,12 @@ function GetStr(name)
      return "";
 };
 
+function closeHudongDialog() {
+	if (hudongob.hasClass("ui-dialog-content")) {
+		hudongob.dialog("close");
+	}
+}
+
 function cmds(str) {
 	if(str.value)
 		dialog_title = str.value;
@@ -114,18 +138,18 @@ function cmdsa(str) {
 	else
 		dialog_title = str.innerHTML;
 	sock.emit('stream',str.id+'\n');
-	hudongob.dialog("close");
+	closeHudongDialog();
 };
 
 function cmdsb() {
 	if($('textarea#chatmsg').val()=='') return; 
 	sock.emit('stream',$('textarea#chatmsg').val()+'\n');
-	hudongob.dialog("close");
+	closeHudongDialog();
 	document.getElementById("chatmsg").value="";
 };
 
 function cmdsc(str) {
-	hudongob.dialog("close");
+	closeHudongDialog();
 	mycmdsob.hide();
 	if(str.id.substr(0,4)=='020')
 	{
@@ -140,7 +164,7 @@ function cmdsc(str) {
 function says(str) {
 	if($('textarea#chatmsg').val()=='') return;
 	sock.emit('stream',str.id.replace('$txt#',$('textarea#chatmsg').val())+'\n');
-	hudongob.dialog("close");
+	closeHudongDialog();
 	document.getElementById("chatmsg").value="";
 };
 
@@ -697,16 +721,16 @@ function writelogin() {
 	});
 	chatob.html('');
 	chatob.append('<span class="out">欢迎进入'+GetStr("server")+'......</span><br>');
+	if(loginError) chatob.html(loginError+'<br>');
 	hudongob.append('<span class="out">请输入账号：</span><br>');
 	hudongob.append('<span class="out"><input type="text" value="'+getCookie('myid')+'" id="id"></span><br>');
 	hudongob.append('<span class="out">请输入密码：<br></span>');
 	hudongob.append('<span class="out"><input type="password" value="'+getCookie('mypass')+'" id="pass"></span><br><br>');
 	hudongob.append('<input type="button" style="color:'+textcol+';margin:3px;width:80px;height:35px" id="exit_login" value="登录游戏" onclick="logincheck()" />');
 	hudongob.append('<input type="button" style="color:'+textcol+';margin:3px;width:80px;height:35px" id="exit_login" value="注册账号" onclick="writeregister()" />');
-	hudongob.append('<input type="button" style="color:'+textcol+';margin:3px;width:80px;height:35px" id="exit_login" value="游戏主页" onclick="main_login()" />');
 };
 
-function writechar() {
+/* function writechar() {
 	hudongob.html('');
 	hudongob.dialog({
 		title:"请建立游戏角色！",
@@ -722,7 +746,35 @@ function writechar() {
 	hudongob.append('<span class="out"><input type="text" id="nicheng"></span><br>');
 	hudongob.append('<span class="out">请选择性别：</span><br>');
 	hudongob.append('<form><input type="radio" style="width:50px;height:10px" name="sex" value="男性" id="nan"><span style="width:90px;height:20px;line-height:0px" class="out">男性　</span><input type="radio" style="width:50px;height:10px" name="sex" value="女性" id="nv"><span style="width:90px;height:20px;line-height:0px" class="out">女性　</span></form><br>');
-};
+}; */
+
+function writechar() {
+  hudongob.html('');
+  hudongob.dialog({
+    title: "请建立游戏角色！",
+    modal: true,
+    position: ["center", 72],
+    buttons: {
+      "确认建立": function() {
+        charcheck();
+      }
+    }
+  });
+
+  hudongob.append('<span class="out">请输入昵称：</span><br>');
+  hudongob.append('<span class="out"><input type="text" id="nicheng"></span><br>');
+  hudongob.append('<span class="out">请选择性别：</span><br>');
+  hudongob.append(
+    '<div id="sex_select" style="display:flex;gap:12px;margin:8px 0 14px 0;">' +
+      '<label class="out" for="nan" style="display:flex;align-items:center;gap:6px;width:auto;height:32px;">' +
+        '<input type="radio" name="sex" value="男性" id="nan" style="-webkit-appearance:radio;appearance:radio;width:18px;height:18px;margin:0;">男性' +
+      '</label>' +
+      '<label class="out" for="nv" style="display:flex;align-items:center;gap:6px;width:auto;height:32px;">' +
+        '<input type="radio" name="sex" value="女性" id="nv" style="-webkit-appearance:radio;appearance:radio;width:18px;height:18px;margin:0;">女性' +
+      '</label>' +
+    '</div>'
+  );
+}
 
 function addZero(str,length) {
 	var strlen = str.length;
@@ -737,65 +789,27 @@ function getDateYMD() {
 	return (date.getFullYear() + "-" + addZero(String((date.getMonth() + 1)), 2) + "-" + addZero(String(date.getDate()), 2));
 }
 
-function logincheck(id,pass) {
-	var myid,mypass,mycs,key,mymail;
-	mycs = "login";
-	
-	if(id!=null)
-		myid = id;
-	else
-	{
-		myid = $('input#id').val();
-	}
-	if(pass!=null)
-	{
-		mypass = pass;
-	}
-	else
-	{
-		mypass = $('input#pass').val();
-	}
-	if(myid==''||mypass=='')
-	{
-		alert('账号密码不能为空！');
-		return;
-	}
 
-	mycmdsob.css('background','#333');
-	$('body').css('background-size',$(window).width()+'px '+$(window).height()+'px');
-	ansi_flag = true;
-	hudongob.html('');
-	chatob.html('登录中......<br>');
-	var token = md5(getDateYMD() + Wp1 + myid + mypass);
-	
-    $.ajax({
-        type : "get",
-        async : false,
-        url : 'http://fzcs.92mud.com/mud/api.php',
-        data : {'cs' : mycs, 'name' : myid, 'pass' : mypass, 'mail' : mymail, 'token' : token},
-        cache : false, 
-        dataType : 'json',
-        success : function(json){
-			if(json.code == '1')
-			{
-				hudongob.append('<div style="text-align:center">' + json.message + '</div>');
-				hudongob.append('<span class="out"><input type="button" id="loginok" value="退出游戏" onclick="writelogin()"></span>');
-			} else
-			if(json.code == '0')
-			{
-				chatob.html('欢迎来到'+ titled+'！<br>');
-				setCookie('myid',myid);
-				setCookie('mypass',mypass);
-				setCookie('auto_login',true);
-				sock.emit('stream',myid+'║'+mypass+'║'+user_key+'║'+mymail+'\n');
-				hudongob.dialog("close");
-			}
-        },
-        error:function(xhr,status,error){
-            alert(error);
-        }
-    });
-};
+function logincheck(id, pass) {
+  var myid = id != null ? id : $('input#id').val();
+  var mypass = pass != null ? pass : $('input#pass').val();
+  var mymail = 'local@zjmud.invalid';
+
+  if (myid == '' || mypass == '') {
+    alert('账号密码不能为空！');
+    return;
+  }
+
+  setCookie('myid', myid);
+  setCookie('mypass', mypass);
+  setCookie('auto_login', true);
+
+  loginError = '';
+  loginPending = true;
+  chatob.html('登录中......<br>');
+  sock.emit('stream', myid + '║' + mypass + '║' + user_key + '║' + mymail + '\n');
+  closeHudongDialog();
+}
 
 function writeregister() {	
 	hudongob.dialog({
@@ -815,10 +829,10 @@ function writeregister() {
 	hudongob.append('<span class="out"><input type="password" value="" id="pass"></span><br>');
 	hudongob.append('<span class="out">重新输入密码：</span><br>');
 	hudongob.append('<span class="out"><input type="password" value="" id="repass"></span><br>');
-	hudongob.append('<span class="out">请输入手机号：</span><br>');
+	/* hudongob.append('<span class="out">请输入手机号：</span><br>');
 	hudongob.append('<span class="out"><input type="text" value="" id="phone"></span><br>');
 	hudongob.append('<span class="out">请输入邮箱：</span><br>');
-	hudongob.append('<span class="out"><input type="text" value="" id="mail"></span><br>');
+	hudongob.append('<span class="out"><input type="text" value="" id="mail"></span><br>'); */
 		
 	hudongob.append('<br><span id="uiButton" style="display:flex;justify-content:space-between;width:100%;">'
 		+ '<span class="out left"><button type="button" style="color:'+textcol+';margin:1px;width:80px;height:35px" id="register" onclick="registercheck()">确定提交</button></span>'
@@ -826,65 +840,23 @@ function writeregister() {
 		+ '</span>');		
 }
 
-function registercheck() {
-	var myid,mypass,myrepass,myphone,mymail,mycs;
-	mycs = 'reg';
-	myid = $('input#id').val();
-	mypass = $('input#pass').val();
-	myrepass = $('input#repass').val();
-	myphone = $('input#phone').val();
-	mymail = $('input#mail').val();
-	
-	if(myid==''||mypass=='')
-	{
-		alert('账号密码不能为空！');
-		return;
-	}
-	if(mypass!=myrepass)
-	{
-		alert('两次密码输入不一致！');
-		return;
-	}
-	if(myphone=='')
-	{
-		alert('手机号码不能为空！');
-		return;
-	}
-	if(mymail=='')
-	{
-		alert('邮箱不能为空！');
-		return;
-	}
-	hudongob.html('');
-	hudongob.html('注册中...<br>');
 
-	var token = md5(getDateYMD() + Wp1 + myid + mypass + myphone + mymail);
-    $.ajax({
-        type : 'get',
-        async : false,
-        url : 'http://fzcs.92mud.com/mud/api.php',
-        data : {'cs' : mycs, 'name' : myid, 'pass' : mypass, 'phone' : myphone, 'mail' : mymail, 'token' : token},
-        cache : false, 
-        dataType : 'json',
-        success : function(json) {
-            if(json.code == '1')
-			{
-				hudongob.append('<div style="text-align:center">' + json.message + '</div>');
-				hudongob.append('<span class="out"><input type="button" id="loginok" value="返回注册" onclick="writeregister()"></span>');
-			}
-			else if(json.code == '0')
-			{
-				setCookie('myid',myid);
-				setCookie('mypass',mypass);
-				setCookie('auto_login',true);
-				regtoken = myid+'║'+mypass+'║'+ user_key +'║'+mymail+'\n';
-				sock.emit('stream', regtoken);
-			}
-        },
-        error:function(xhr,status,error) {
-            alert(error);
-        }
-    });
+function registercheck() {
+  var myid = $('input#id').val();
+  var mypass = $('input#pass').val();
+  var myrepass = $('input#repass').val();
+
+  if (myid == '' || mypass == '') {
+    alert('账号密码不能为空！');
+    return;
+  }
+
+  if (mypass != myrepass) {
+    alert('两次密码输入不一致！');
+    return;
+  }
+
+  logincheck(myid, mypass);
 }
 
 function charcheck() {
@@ -966,13 +938,9 @@ function foransitext()
 
 function paym()
 {
-	window.open("http://xyzx.92mud.com/alipay/");
-	close_hd();
 }
 function main_login()
 {
-	window.open("http://www.92mud.com");
-	close_hd();
 }
 function room_set()
 {
@@ -988,15 +956,7 @@ function room_set()
 	adjustLayout();
 }
 function toggleChat() {	
-	if (chatob.height() < 100) {
-		chatob.height(140);
-		chat_height = 100;
-		$('input#toggleChatBtn').attr('value', '聊天(宽)');
-	} else {
-		chatob.height('auto');
-		chat_height = 0;
-		$('input#toggleChatBtn').attr('value', '聊天(窄)');
-	}
+	setChatMode(chat_height < 100);
 	adjustLayout();
 }
 
@@ -1025,8 +985,6 @@ function config()
 		chat_value = '聊天(宽)';
 	}
 	
-	hudongob.append('<br><input type="button" style="color:#ff0000;margin:3px;width:80px;height:35px" id="exit_login" value="游戏充值" onclick="paym()" />');
-	hudongob.append('<input type="button" style="color:'+textcol+';margin:3px;width:80px;height:35px" id="exit_login" value="游戏主页" onclick="main_login()" /><br>');
 	hudongob.append('<input type="button" style="color:'+textcol+';margin:3px;width:80px;height:35px" id="toggleBtn" value='+long_value+' onclick="room_set()" />');
 	hudongob.append('<input type="button" style="color:'+textcol+';margin:3px;width:80px;height:35px" id="toggleChatBtn" value='+chat_value+' onclick="toggleChat()" />');
 	hudongob.append('<input type="button" style="color:'+textcol+';margin:3px;width:80px;height:35px" id="exit_login" value="退出游戏" onclick="relogin()" />');
@@ -1061,9 +1019,9 @@ function writeServerData(buf) {
 
 		if(line.substr(0,6)=='版本验证成功')
 		{
-			if(localStorage.getItem('myid')&&localStorage.getItem('mypass')&&localStorage.getItem('auto_login'))
+			if(getCookie('myid')&&getCookie('mypass')&&getCookie('auto_login'))
 			{
-				logincheck(localStorage.getItem('myid'),localStorage.getItem('mypass'));
+				logincheck(getCookie('myid'),getCookie('mypass'));
 			}
 			else
 			{
@@ -1074,18 +1032,20 @@ function writeServerData(buf) {
 
 		if(line.substr(0,8)=='0000008')
 		{
+			loginPending = false;
 			writechar();
 			return;
 		}
 		if(line.substr(0,8)=='0000007')
 		{
+			loginPending = false;
+			chatob.html('欢迎来到'+titled+'！<br>');
 			loginok = true;
 			//longob.show();
 			//默认关闭场景描述
 			longob.height(0);
 			longob.hide();
-			chatob.height(140);
-			chat_height = 100;
+			setChatMode(localStorage.getItem('chat_mode') !== 'narrow');
 			
 			outob.html('');
 			outob.show();
@@ -1094,9 +1054,9 @@ function writeServerData(buf) {
 			menuob.html('<table width="100%" border="0" cellspacing="0" cellpadding="1"><tr>'
 				+'<td align="center" valign="middle"><input class="menubt" type="button" name="b10" id="look" onclick="javascript:writecmd()" value="指令"></td>'
 				+'<td align="center" valign="middle"><input class="menubt" type="button" name="b12" id="mycmds ofen" onclick="javascript:cmdsa(this)" value="常用"></td>'
-				+'<td align="center" valign="middle"><input class="menubt" type="button" name="b14" id="mycmds quest" onclick="javascript:cmdsa(this)" value="任务"></td>'
+				+'<td align="center" valign="middle"><input class="menubt" type="button" name="b14" id="mycmds skill" onclick="javascript:cmdsa(this)" value="技能"></td>'
 				+'<td align="center" valign="middle"><input class="menubt" type="button" name="b13" id="mycmds fight" onclick="javascript:cmdsa(this)" value="战斗"></td>'
-				+'<td align="center" valign="middle"><input class="menubt" type="button" name="b15" id="mycmds skill" onclick="javascript:cmdsa(this)" value="技能"></td>'
+				+'<td align="center" valign="middle"><input class="menubt" type="button" name="b15" id="mycmds quest" onclick="javascript:cmdsa(this)" value="任务"></td>'
 				+'<td align="center" valign="middle"><input class="menubt" type="button" name="b17" id="mycmds help" onclick="javascript:cmdsa(this)" value="帮助"></td>'
 				+'<td align="center" valign="middle"><input class="menubt" type="button" name="b16" id="liaotian" onclick="javascript:cmdsa(this)" value="聊天"></td>'
 				+'<td align="center" valign="middle"><input class="menubt" type="button" name="b11" id="look" onclick="javascript:config()" value="系统"></td>'
@@ -1247,7 +1207,18 @@ $(document).ready(function(){
 		console.log('连接成功。');
 	});
 	sock.on('disconnect', function(){
-		console.log('断开连接。');
+		if(loginPending)
+		{
+			loginPending = false;
+			loginError = '登录失败，请检查账号或密码，正在重新连接……';
+			delCookie('auto_login');
+			writelogin();
+		}
+		else if(loginok)
+		{
+			loginok = false;
+			chatob.html('连接已断开，正在重新连接……<br>');
+		}
 	});
 
 	var send = function(str) {

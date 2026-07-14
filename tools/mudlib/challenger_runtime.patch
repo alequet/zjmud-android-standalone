@@ -1,0 +1,71 @@
+--- a/inherit/char/challenger.c
++++ b/inherit/char/challenger.c
+@@ -56,3 +56,3 @@
+ 	string msg;
+-	int expi, poti, weiwangi, scorei;
++	int expi, poti, weiwangi, scorei, total_damage;
+ 	int i;
+@@ -91,9 +91,15 @@
+ 
+-	killer = keys(boss=query("boss"));
+-	if(give = query("die_give2"))
++	boss = query("boss");
++	if (! mapp(boss))
++		boss = ([]);
++	killer = keys(boss);
++	total_damage = query("all_recive_damage");
++	if (mapp(give = query("die_give2")))
+ 	{
+ 		items = keys(give);
+ 	}
+ 	for(i=0; i<sizeof(killer); i++)
+ 	{
++		if (! intp(boss[killer[i]]) || boss[killer[i]] <= 0)
++			continue;
+ 		if(objectp(ob=find_player(killer[i])))
+@@ -109,8 +115,11 @@
+ 
+-			if(give&&present(ob,environment(this_object())))
++			if(mapp(give) && total_damage > 0 &&
++			   present(ob, environment(this_object())))
+ 			{
+ 				int j;
+ 				for(j=0; j<sizeof(items); j++)
+ 				{
+-					if(random(give[items[j]])==0&&random(query("all_recive_damage"))<boss[killer[i]])
++					if(intp(give[items[j]]) && give[items[j]] > 0 &&
++					   random(give[items[j]]) == 0 &&
++					   random(total_damage) < boss[killer[i]])
+ 					{
+@@ -129,9 +138,10 @@
+ 	}
+ //掉落物品
+-	if(give = query("die_give"))
++	if(mapp(give = query("die_give")))
+ 	{
+ 		items = keys(give);
+ 		for(i=0; i<sizeof(items); i++)
+ 		{
+-			if(random(give[items[i]])==0)
++			if(intp(give[items[i]]) && give[items[i]] > 0 &&
++			   random(give[items[i]]) == 0)
+ 			{
+@@ -141,5 +151,10 @@
+ 	}
+ 
+-	call_out("destruct", 0, this_object());
++	call_out("destruct_me", 0);
++}
++
++private void destruct_me()
++{
++	destruct(this_object());
+ }
+ 
+@@ -162,5 +177,5 @@
+ 	command("chat " + msg);
+ 	set("finished", 1);
+-	call_out("destruct", 0, this_object());
++	call_out("destruct_me", 0);
+ 	::win();
+ }

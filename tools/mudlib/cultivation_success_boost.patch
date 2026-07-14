@@ -1,0 +1,22 @@
+--- a/cmds/skill/breakup.c
++++ b/cmds/skill/breakup.c
+@@ -107,7 +107,7 @@
+ 	if (random(10))
+ 		return 1;
+ 
+-	if (random(40000) < me->query("con")|| me->query("breakupid"))
++	if (random(4000) < me->query("con")|| me->query("breakupid"))
+ 	{
+ 		message_vision(HIW "只见$N" HIW "头上白雾腾腾、浑身如同笼罩在云中，看来已经到了三花聚顶、"
+ 			       "五气朝元、龙虎相济、天人交会的紧要关头！"NOR"\n", me);
+--- a/cmds/skill/animaout.c
++++ b/cmds/skill/animaout.c
+@@ -105,7 +105,7 @@
+ 	if (random(10))
+ 		return 1;
+ 
+-	if (random(40000) < me->query("con"))
++	if (random(4000) < me->query("con"))
+ 	{
+ 		message_vision(HIY "只见$N" HIY "头上现出万朵金莲，光华四射，一时间麝香扑鼻、氤氲遍地！"NOR"\n", me);
+ 		tell_object(me, HIM "你觉得精力源源而生，忽然心如止水，如身出天际，无源无尽、登时大彻大悟。"NOR"\n");

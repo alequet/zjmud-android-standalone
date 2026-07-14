@@ -16,8 +16,11 @@ import android.webkit.WebViewClient
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.webkit.JavaScriptReplyProxy
+import androidx.webkit.ProxyConfig
+import androidx.webkit.ProxyController
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -54,6 +57,23 @@ class MainActivity : Activity() {
 
     @Suppress("SetJavaScriptEnabled")
     private fun showGame() {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+            showStatus("系统 WebView 不支持离线网络隔离。")
+            return
+        }
+
+        val proxyConfig = ProxyConfig.Builder()
+            .addProxyRule(OFFLINE_PROXY)
+            .addBypassRule(APP_ASSET_HOST)
+            .build()
+        ProxyController.getInstance().setProxyOverride(
+            proxyConfig,
+            ContextCompat.getMainExecutor(this),
+        ) { createGameView() }
+    }
+
+    @Suppress("SetJavaScriptEnabled", "DEPRECATION")
+    private fun createGameView() {
         val assetLoader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
             .build()
@@ -67,16 +87,20 @@ class MainActivity : Activity() {
             setBackgroundColor(0xff000000.toInt())
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            settings.blockNetworkLoads = true
             settings.allowFileAccess = false
             settings.allowContentAccess = false
             settings.javaScriptCanOpenWindowsAutomatically = false
             settings.setSupportMultipleWindows(false)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                settings.safeBrowsingEnabled = false
+            }
             webViewClient = object : WebViewClient() {
                 override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                     return localResponse(assetLoader, request.url)
                 }
 
-                @Deprecated("Legacy WebView callback")
+                @Suppress("OVERRIDE_DEPRECATION")
                 override fun shouldInterceptRequest(view: WebView, url: String): WebResourceResponse? {
                     return localResponse(assetLoader, Uri.parse(url))
                 }
@@ -164,6 +188,7 @@ class MainActivity : Activity() {
         const val APP_ASSET_HOST = "appassets.androidplatform.net"
         const val APP_ASSET_ORIGIN = "https://$APP_ASSET_HOST"
         const val GAME_URL = "$APP_ASSET_ORIGIN/assets/web/index.html"
+        const val OFFLINE_PROXY = "http://127.0.0.1:9"
         const val NOTIFICATION_PERMISSION_REQUEST = 100
     }
 }

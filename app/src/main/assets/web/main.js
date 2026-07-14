@@ -118,6 +118,12 @@ function GetStr(name)
      return "";
 };
 
+function closeHudongDialog() {
+	if (hudongob.hasClass("ui-dialog-content")) {
+		hudongob.dialog("close");
+	}
+}
+
 function cmds(str) {
 	if(str.value)
 		dialog_title = str.value;
@@ -132,18 +138,18 @@ function cmdsa(str) {
 	else
 		dialog_title = str.innerHTML;
 	sock.emit('stream',str.id+'\n');
-	hudongob.dialog("close");
+	closeHudongDialog();
 };
 
 function cmdsb() {
 	if($('textarea#chatmsg').val()=='') return; 
 	sock.emit('stream',$('textarea#chatmsg').val()+'\n');
-	hudongob.dialog("close");
+	closeHudongDialog();
 	document.getElementById("chatmsg").value="";
 };
 
 function cmdsc(str) {
-	hudongob.dialog("close");
+	closeHudongDialog();
 	mycmdsob.hide();
 	if(str.id.substr(0,4)=='020')
 	{
@@ -158,7 +164,7 @@ function cmdsc(str) {
 function says(str) {
 	if($('textarea#chatmsg').val()=='') return;
 	sock.emit('stream',str.id.replace('$txt#',$('textarea#chatmsg').val())+'\n');
-	hudongob.dialog("close");
+	closeHudongDialog();
 	document.getElementById("chatmsg").value="";
 };
 
@@ -783,66 +789,6 @@ function getDateYMD() {
 	return (date.getFullYear() + "-" + addZero(String((date.getMonth() + 1)), 2) + "-" + addZero(String(date.getDate()), 2));
 }
 
-/*
-function logincheck(id,pass) {
-	var myid,mypass,mycs,key,mymail;
-	mycs = "login";
-	
-	if(id!=null)
-		myid = id;
-	else
-	{
-		myid = $('input#id').val();
-	}
-	if(pass!=null)
-	{
-		mypass = pass;
-	}
-	else
-	{
-		mypass = $('input#pass').val();
-	}
-	if(myid==''||mypass=='')
-	{
-		alert('账号密码不能为空！');
-		return;
-	}
-
-	mycmdsob.css('background','#333');
-	$('body').css('background-size',$(window).width()+'px '+$(window).height()+'px');
-	ansi_flag = true;
-	hudongob.html('');
-	chatob.html('登录中......<br>');
-	var token = md5(getDateYMD() + Wp1 + myid + mypass);
-	
-    $.ajax({
-        type : "get",
-        async : false,
-        url : 'http://fzcs.92mud.com/mud/api.php',
-        data : {'cs' : mycs, 'name' : myid, 'pass' : mypass, 'mail' : mymail, 'token' : token},
-        cache : false, 
-        dataType : 'json',
-        success : function(json){
-			if(json.code == '1')
-			{
-				hudongob.append('<div style="text-align:center">' + json.message + '</div>');
-				hudongob.append('<span class="out"><input type="button" id="loginok" value="退出游戏" onclick="writelogin()"></span>');
-			} else
-			if(json.code == '0')
-			{
-				chatob.html('欢迎来到'+ titled+'！<br>');
-				setCookie('myid',myid);
-				setCookie('mypass',mypass);
-				setCookie('auto_login',true);
-				sock.emit('stream',myid+'║'+mypass+'║'+user_key+'║'+mymail+'\n');
-				hudongob.dialog("close");
-			}
-        },
-        error:function(xhr,status,error){
-            alert(error);
-        }
-    });
-}; */
 
 function logincheck(id, pass) {
   var myid = id != null ? id : $('input#id').val();
@@ -862,7 +808,7 @@ function logincheck(id, pass) {
   loginPending = true;
   chatob.html('登录中......<br>');
   sock.emit('stream', myid + '║' + mypass + '║' + user_key + '║' + mymail + '\n');
-  hudongob.dialog("close");
+  closeHudongDialog();
 }
 
 function writeregister() {	
@@ -894,66 +840,6 @@ function writeregister() {
 		+ '</span>');		
 }
 
-/* function registercheck() {
-	var myid,mypass,myrepass,myphone,mymail,mycs;
-	mycs = 'reg';
-	myid = $('input#id').val();
-	mypass = $('input#pass').val();
-	myrepass = $('input#repass').val();
-	myphone = $('input#phone').val();
-	mymail = $('input#mail').val();
-	
-	if(myid==''||mypass=='')
-	{
-		alert('账号密码不能为空！');
-		return;
-	}
-	if(mypass!=myrepass)
-	{
-		alert('两次密码输入不一致！');
-		return;
-	}
-	if(myphone=='')
-	{
-		alert('手机号码不能为空！');
-		return;
-	}
-	if(mymail=='')
-	{
-		alert('邮箱不能为空！');
-		return;
-	}
-	hudongob.html('');
-	hudongob.html('注册中...<br>');
-
-	var token = md5(getDateYMD() + Wp1 + myid + mypass + myphone + mymail);
-    $.ajax({
-        type : 'get',
-        async : false,
-        url : 'http://fzcs.92mud.com/mud/api.php',
-        data : {'cs' : mycs, 'name' : myid, 'pass' : mypass, 'phone' : myphone, 'mail' : mymail, 'token' : token},
-        cache : false, 
-        dataType : 'json',
-        success : function(json) {
-            if(json.code == '1')
-			{
-				hudongob.append('<div style="text-align:center">' + json.message + '</div>');
-				hudongob.append('<span class="out"><input type="button" id="loginok" value="返回注册" onclick="writeregister()"></span>');
-			}
-			else if(json.code == '0')
-			{
-				setCookie('myid',myid);
-				setCookie('mypass',mypass);
-				setCookie('auto_login',true);
-				regtoken = myid+'║'+mypass+'║'+ user_key +'║'+mymail+'\n';
-				sock.emit('stream', regtoken);
-			}
-        },
-        error:function(xhr,status,error) {
-            alert(error);
-        }
-    });
-} */
 
 function registercheck() {
   var myid = $('input#id').val();
@@ -1052,13 +938,9 @@ function foransitext()
 
 function paym()
 {
-	window.open("http://xyzx.92mud.com/alipay/");
-	close_hd();
 }
 function main_login()
 {
-	window.open("http://www.92mud.com");
-	close_hd();
 }
 function room_set()
 {

@@ -1,0 +1,51 @@
+--- a/adm/npc/wizard.c
++++ b/adm/npc/wizard.c
+@@ -14,6 +14,7 @@
+ int ask_gift();
+ int ask_viplv();
+ int ask_xidian();
++void repair_jiuyang_book(object me);
+ 
+ string *sk_list = ({
+ 		"qishang-quan",
+@@ -99,13 +100,40 @@
+ }
+ 
+ void init()
+ {
++	repair_jiuyang_book(this_player());
+ 	add_action("ask_character","washme");
+ 	add_action("ask_xidian","xidian");
+ 	add_action("do_getvip","getvip");
+ 	add_action("do_getsk","getsk");
+ }
+ 
++void repair_jiuyang_book(object me)
++{
++	object ob;
++
++	if (! objectp(me) ||
++	    me->query("zjvip/vipgift/jiuyang_book_repaired") ||
++	    me->query_skill("jiuyang-shengong", 1) != 50 ||
++	    (! me->query("zjvip/vipgift/vip3") &&
++	     ! me->query("zjvip/vipgift/vip4")))
++		return;
++
++	if (objectp(present("jiuyang zhenjing", me)))
++	{
++		me->set("zjvip/vipgift/jiuyang_book_repaired", 1);
++		return;
++	}
++
++	ob = new("/clone/book/jiuyang-book");
++	if (! objectp(ob) || ! ob->move(me, 1))
++		return;
++
++	me->set("zjvip/vipgift/jiuyang_book_repaired", 1);
++	tell_object(me, HIG "VIP Jiuyang reward book restored.\n" NOR);
++	log_ufile(me, "viplvgift", "Restored missing Jiuyang reward book.\n");
++}
++
+ int ask_gift()
+ {
+ 	object ob = this_player();

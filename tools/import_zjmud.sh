@@ -49,7 +49,31 @@ patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/quest_fly.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/hide_room_paths.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/static_admins.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/full_character_save.patch"
+patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/challenger_runtime.patch"
+patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/wizard_reward_repair.patch"
+patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/cultivation_success_boost.patch"
+rm -f "$WORK_ROOT/payload/inherit/char/challenger.c.orig"
 install -m 0644 "$REPO_ROOT/tools/mudlib/fullsave.c" "$WORK_ROOT/payload/feature/fullsave.c"
+install -m 0644 "$REPO_ROOT/tools/mudlib/offline-gchannel.c" \
+  "$WORK_ROOT/payload/adm/daemons/network/services/gchannel.c"
+install -m 0644 "$REPO_ROOT/tools/mudlib/offline-messaged.c" \
+  "$WORK_ROOT/payload/adm/daemons/network/messaged.c"
+install -m 0644 "$REPO_ROOT/tools/mudlib/offline-dns-master.c" \
+  "$WORK_ROOT/payload/adm/daemons/network/dns_master.c"
+install -m 0644 "$REPO_ROOT/tools/mudlib/offline-versiond.c" \
+  "$WORK_ROOT/payload/adm/daemons/versiond.c"
+install -m 0644 "$REPO_ROOT/tools/mudlib/offline-cmwhod.c" \
+  "$WORK_ROOT/payload/adm/daemons/network/cmwhod.c"
+install -m 0644 "$REPO_ROOT/tools/mudlib/offline-payd.c" \
+  "$WORK_ROOT/payload/adm/daemons/payd.c"
+install -m 0644 "$REPO_ROOT/tools/mudlib/offline-telnet.c" \
+  "$WORK_ROOT/payload/shadow/telnet.c"
+for network_service in "$WORK_ROOT"/payload/adm/daemons/network/services/*.c; do
+  install -m 0644 "$REPO_ROOT/tools/mudlib/offline-network-service.c" \
+    "$network_service"
+done
+install -m 0644 "$REPO_ROOT/tools/mudlib/offline-finger-service.c" \
+  "$WORK_ROOT/payload/adm/daemons/network/fs.c"
 
 perl -pi -e 's/cost = me->query_skill\(skl_id, 1\) \/ 2 \+ 100;/cost = (me->query_skill(skl_id, 1) \/ 2 + 100) * 20;/' \
   "$WORK_ROOT/payload/cmds/skill/derive.c"
@@ -68,6 +92,156 @@ if [[ "$(LC_ALL=C rg -F -c 'cost = (me->query_skill(skl_id, 1) / 2 + 100) * 20;'
   exit 1
 fi
 
+cultivation_success_boost_count="$(LC_ALL=C rg -F -l \
+  'random(4000) < me->query("con")' \
+  "$WORK_ROOT/payload/cmds/skill/breakup.c" \
+  "$WORK_ROOT/payload/cmds/skill/animaout.c" | wc -l | tr -d ' ')"
+if [[ "$cultivation_success_boost_count" != "2" ]] ||
+   LC_ALL=C rg -q 'random\(40000\) < me->query\("con"\)' \
+     "$WORK_ROOT/payload/cmds/skill/breakup.c" \
+     "$WORK_ROOT/payload/cmds/skill/animaout.c"; then
+  echo "Cultivation success-rate boost validation failed." >&2
+  exit 1
+fi
+
+perl -ni -e 'print unless /"(?:intermud|intermud_emote|intermud_channel|filter)"\s*:/' \
+  "$WORK_ROOT/payload/adm/daemons/channeld.c"
+perl -0pi -e 's/(\s+if\( sscanf\(target, "%s\@%s", target, mud\)==2 \) \{)/\n    if (sscanf(target, "%*s\@%*s") == 2)\n        return notify_fail("Inter-MUD messaging is unavailable in standalone mode.\\n");\n$1/' \
+  "$WORK_ROOT/payload/cmds/std/tell.c"
+perl -0pi -e 's/(\n\tif \(sscanf\(target, "%s\@%s", target, mud\) == 2\))/\n\tif (sscanf(target, "%*s\@%*s") == 2)\n\t\treturn notify_fail("Inter-MUD messaging is unavailable in standalone mode.\\n");\n$1/' \
+  "$WORK_ROOT/payload/cmds/std/reply.c"
+perl -0pi -e 's/(\n\tif \(! me\) me = this_player\(\);)/\n\tif (sscanf(name, "%*s\@%*s") == 2)\n\t\treturn "Inter-MUD lookup is unavailable in standalone mode.\\n";\n$1/' \
+  "$WORK_ROOT/payload/adm/daemons/fingerd.c"
+perl -0pi -e 's/(\n\tif \(! stringp\(info\[MESSAGE\]\)\))/\n\tif (sscanf(info[MSGTO], "%*s\@%*s") == 2)\n\t\treturn MESSAGE_D->error_msg("Inter-MUD messaging is unavailable in standalone mode.\\n");\n$1/' \
+  "$WORK_ROOT/payload/cmds/chat/tell.c"
+perl -0pi -e 's/(\n\tmsg = FINGER_D->finger_user\(info\[ARG\], me\);)/\n\tif (sscanf(info[ARG], "%*s\@%*s") == 2)\n\t\treturn MESSAGE_D->error_msg("Inter-MUD lookup is unavailable in standalone mode.\\n");\n$1/' \
+  "$WORK_ROOT/payload/cmds/chat/finger.c"
+perl -0pi -e 's/(\n\tseteuid\(getuid\(\)\);)/\n\treturn notify_fail("External telnet is unavailable in standalone mode.\\n");\n$1/' \
+  "$WORK_ROOT/payload/cmds/adm/telnet.c"
+perl -pi -e 's/MESSAGE_D->tell_object\(/MESSAGE_D->tell_user(/' \
+  "$WORK_ROOT/payload/clone/user/chatter.c"
+perl -0pi -e 's#(ob = new\("/clone/book/jiuyang-copy"\);\n)(\s*)ob->move\(me, 1\);#$1$2if (ob->move(me, 1))\n$2\tme->set("zjvip/vipgift/jiuyang_book_repaired", 1);#g' \
+  "$WORK_ROOT/payload/adm/npc/wizard.c"
+perl -pi -e 's#/clone/book/jiuyang-copy#/clone/book/jiuyang-book#g; s#/clone/shizhe/fushougao#/clone/gift/fushougao#g; s#/clone/shizhe/(?:xiaohuan|lingzhi)#/clone/gift/lingzhi#g' \
+  "$WORK_ROOT/payload/adm/npc/wizard.c"
+
+if LC_ALL=C rg -q '"intermud"\s*:|"intermud_emote"\s*:|"intermud_channel"\s*:|"filter"\s*:' \
+     "$WORK_ROOT/payload/adm/daemons/channeld.c"; then
+  echo "Offline channel patch validation failed." >&2
+  exit 1
+fi
+
+if LC_ALL=C rg -q 'DNS_MASTER|send_udp|socket_' \
+     "$WORK_ROOT/payload/adm/daemons/network/services/gchannel.c"; then
+  echo "Offline gchannel replacement validation failed." >&2
+  exit 1
+fi
+
+for offline_daemon in \
+  "$WORK_ROOT/payload/adm/daemons/network/dns_master.c" \
+  "$WORK_ROOT/payload/adm/daemons/network/messaged.c" \
+  "$WORK_ROOT/payload/adm/daemons/network/cmwhod.c" \
+  "$WORK_ROOT/payload/adm/daemons/payd.c" \
+  "$WORK_ROOT/payload/adm/daemons/versiond.c" \
+  "$WORK_ROOT/payload/shadow/telnet.c"; do
+  if LC_ALL=C rg -q 'DNS_MASTER|GTELL|\bsocket_(create|bind|listen|accept|connect|write|close|release|acquire|status|error)\s*\(|\bresolve\s*\(' \
+       "$offline_daemon"; then
+    echo "Offline daemon replacement still references network APIs: $offline_daemon" >&2
+    exit 1
+  fi
+done
+
+if [[ "$(LC_ALL=C rg -c '^varargs void tell_user\(' \
+        "$WORK_ROOT/payload/adm/daemons/network/messaged.c")" != "1" ||
+      "$(LC_ALL=C rg -c '^int (send_msg_to|error_msg)\(' \
+        "$WORK_ROOT/payload/adm/daemons/network/messaged.c")" != "2" ||
+      "$(LC_ALL=C rg -F -c 'MESSAGE_D->tell_user(' \
+        "$WORK_ROOT/payload/clone/user/chatter.c")" != "18" ||
+      "$(LC_ALL=C rg -F -o 'MESSAGE_D->tell_object(' \
+        "$WORK_ROOT/payload/clone/user/chatter.c" | wc -l | tr -d ' ')" != "0" ||
+      "$(LC_ALL=C rg -F -c 'int is_release_server() { return 1; }' \
+        "$WORK_ROOT/payload/adm/daemons/versiond.c")" != "1" ]]; then
+  echo "Offline daemon API validation failed." >&2
+  exit 1
+fi
+
+offline_guard_count="$(LC_ALL=C rg -l \
+  'unavailable in standalone mode' \
+  "$WORK_ROOT/payload/cmds/std/tell.c" \
+  "$WORK_ROOT/payload/cmds/std/reply.c" \
+  "$WORK_ROOT/payload/adm/daemons/fingerd.c" \
+  "$WORK_ROOT/payload/cmds/chat/tell.c" \
+  "$WORK_ROOT/payload/cmds/chat/finger.c" \
+  "$WORK_ROOT/payload/cmds/adm/telnet.c" | wc -l | tr -d ' ')"
+if [[ "$offline_guard_count" != "6" ]]; then
+  echo "Offline network command guard validation failed." >&2
+  exit 1
+fi
+
+if LC_ALL=C rg -q '/clone/book/jiuyang-copy|/clone/shizhe/(fushougao|xiaohuan|lingzhi)' \
+     "$WORK_ROOT/payload/adm/npc/wizard.c" ||
+   [[ "$(LC_ALL=C rg -F -c 'repair_jiuyang_book(this_player());' \
+        "$WORK_ROOT/payload/adm/npc/wizard.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'void repair_jiuyang_book(object me)' \
+        "$WORK_ROOT/payload/adm/npc/wizard.c")" != "2" ||
+      "$(LC_ALL=C rg -F -c 'me->query_skill("jiuyang-shengong", 1) != 50' \
+        "$WORK_ROOT/payload/adm/npc/wizard.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'me->set("zjvip/vipgift/jiuyang_book_repaired", 1);' \
+        "$WORK_ROOT/payload/adm/npc/wizard.c")" != "4" ||
+      "$(LC_ALL=C rg -F -c 'new("/clone/book/jiuyang-book")' \
+        "$WORK_ROOT/payload/adm/npc/wizard.c")" != "3" ||
+      "$(LC_ALL=C rg -F -c 'new("/clone/gift/fushougao")' \
+        "$WORK_ROOT/payload/adm/npc/wizard.c")" != "4" ||
+      "$(LC_ALL=C rg -F -c 'new("/clone/gift/lingzhi")' \
+        "$WORK_ROOT/payload/adm/npc/wizard.c")" != "3" ]]; then
+  echo "Wizard reward object path validation failed." >&2
+  exit 1
+fi
+
+while IFS= read -r reward_path; do
+  if [[ ! -f "$WORK_ROOT/payload${reward_path}.c" ]]; then
+    echo "Wizard reward object is missing: $reward_path" >&2
+    exit 1
+  fi
+done < <(LC_ALL=C rg -o 'new\("/clone/[^"]+"\)' \
+  "$WORK_ROOT/payload/adm/npc/wizard.c" | sed -E 's/^new\("(.*)"\)$/\1/' | sort -u)
+
+network_efun_pattern='\b(socket_create|socket_bind|socket_listen|socket_accept|socket_connect|socket_write|socket_close|socket_release|socket_acquire|socket_status|socket_address|socket_error|resolve|external_start|db_connect)\s*\('
+if LC_ALL=C rg -q "$network_efun_pattern" "$WORK_ROOT/payload" --glob '*.c'; then
+  echo "Payload still contains a callable network efun." >&2
+  LC_ALL=C rg -n "$network_efun_pattern" "$WORK_ROOT/payload" --glob '*.c' >&2
+  exit 1
+fi
+
+removed_network_target_pattern='\b(FTP_D|INETD|NETMAIL_D|TELNET_D|MAIL_SERVER|NAME_SERVER|USERID_D|UDP_MASTER|INTER_CHAN_D|TS_D|RWHO_D)\s*->|"/adm/daemons/network/(inetd|telnetd|netmail|ms|name_server|userid|pingd|udp_master|inter_chan|ts|rwho)"\s*->'
+if LC_ALL=C rg -q "$removed_network_target_pattern" "$WORK_ROOT/payload" --glob '*.c'; then
+  echo "Payload still calls a removed network daemon." >&2
+  LC_ALL=C rg -n "$removed_network_target_pattern" "$WORK_ROOT/payload" --glob '*.c' >&2
+  exit 1
+fi
+
+offline_daemon_marker_count="$(LC_ALL=C rg -l '^// Offline replacement' \
+  "$WORK_ROOT/payload/adm/daemons/network/dns_master.c" \
+  "$WORK_ROOT/payload/adm/daemons/network/messaged.c" \
+  "$WORK_ROOT/payload/adm/daemons/network/cmwhod.c" \
+  "$WORK_ROOT/payload/adm/daemons/network/services/gchannel.c" \
+  "$WORK_ROOT/payload/adm/daemons/payd.c" \
+  "$WORK_ROOT/payload/adm/daemons/versiond.c" \
+  "$WORK_ROOT/payload/shadow/telnet.c" | wc -l | tr -d ' ')"
+if [[ "$offline_daemon_marker_count" != "7" ]]; then
+  echo "Offline daemon replacement marker validation failed." >&2
+  exit 1
+fi
+
+offline_service_count="$(LC_ALL=C rg -l '^// Offline replacement' \
+  "$WORK_ROOT"/payload/adm/daemons/network/services/*.c | wc -l | tr -d ' ')"
+if [[ "$offline_service_count" != "22" ||
+      "$(LC_ALL=C rg -c '^// Offline replacement' \
+        "$WORK_ROOT/payload/adm/daemons/network/fs.c")" != "1" ]]; then
+  echo "Offline network service replacement validation failed." >&2
+  exit 1
+fi
+
 family_reward_multiplier_count="$(LC_ALL=C rg -c \
   '^\s*(exp|pot|mar|shen|score|weiwang) \*= 100;$' \
   "$WORK_ROOT/payload/adm/daemons/questd.c")"
@@ -78,6 +252,32 @@ if [[ "$family_reward_multiplier_count" != "6" ||
         "$WORK_ROOT/payload/adm/daemons/questd.c")" != "1" ||
       "$family_skill_chance_count" != "2" ]]; then
   echo "Family quest reward boost validation failed." >&2
+  exit 1
+fi
+
+# Old MudOS accepted numeric values in string concatenation in more places than
+# this driver. Preserve the GB18030 message bytes and format only the numbers.
+perl -pi -e 's/\+ boss\[killer\[i\]\] \+/+ sprintf("%d", boss[killer[i]]) +/' \
+  "$WORK_ROOT/payload/inherit/char/challenger.c"
+perl -pi -e 's{\+boss\[killer\[i\]\]/(10|20|100)\+}{+sprintf("%d", boss[killer[i]]/$1)+}g' \
+  "$WORK_ROOT/payload/inherit/char/challenger.c"
+
+if [[ "$(LC_ALL=C rg -F -c 'sprintf("%d", boss[killer[i]])' \
+        "$WORK_ROOT/payload/inherit/char/challenger.c")" != "1" ||
+      "$(LC_ALL=C rg -o 'sprintf\("%d", boss\[killer\[i\]\]/(10|20|100)\)' \
+        "$WORK_ROOT/payload/inherit/char/challenger.c" | wc -l | tr -d ' ')" != "4" ||
+      "$(LC_ALL=C rg -F -c 'random(total_damage)' \
+        "$WORK_ROOT/payload/inherit/char/challenger.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'call_out("destruct_me", 0);' \
+        "$WORK_ROOT/payload/inherit/char/challenger.c")" != "2" ||
+      "$(LC_ALL=C rg -F -o 'call_out("destruct",' \
+        "$WORK_ROOT/payload/inherit/char/challenger.c" | wc -l | tr -d ' ')" != "0" ]]; then
+  echo "Challenger runtime compatibility patch validation failed." >&2
+  exit 1
+fi
+
+if [[ -e "$WORK_ROOT/payload/inherit/char/challenger.c.orig" ]]; then
+  echo "Challenger patch left an unexpected backup file." >&2
   exit 1
 fi
 
@@ -128,12 +328,49 @@ perl -0pi -e 's#\s*<script src="http://cdn\.bootcss\.com/blueimp-md5/1\.1\.0/js/
 perl -0pi -e 's/var sock = io\.connect\(\);/var sock = localTransport.connect();/' "$ASSET_ROOT/web/main.js"
 perl -ni -e 'print unless /value="游戏充值"|value="游戏主页"/' "$ASSET_ROOT/web/main.js"
 patch -s -p1 -d "$ASSET_ROOT/web" < "$REPO_ROOT/tools/web/main.android.patch"
+perl -0pi -e 's/hudongob\.dialog\("close"\);/closeHudongDialog();/g' \
+  "$ASSET_ROOT/web/main.js"
+perl -0pi -e 's#function cmds\(str\) \{#function closeHudongDialog() {\n\tif (hudongob.hasClass("ui-dialog-content")) {\n\t\thudongob.dialog("close");\n\t}\n}\n\nfunction cmds(str) {#' \
+  "$ASSET_ROOT/web/main.js"
+perl -0pi -e 's#/\*\nfunction logincheck\(id,pass\) \{.*?\}; \*/\n##s' \
+  "$ASSET_ROOT/web/main.js"
+perl -0pi -e 's#/\* function registercheck\(\) \{.*?\n\} \*/\n##s' \
+  "$ASSET_ROOT/web/main.js"
+perl -0pi -e 's#function paym\(\)\n\{.*?\n\}#function paym()\n{\n}#s' \
+  "$ASSET_ROOT/web/main.js"
+perl -0pi -e 's#function main_login\(\)\n\{.*?\n\}#function main_login()\n{\n}#s' \
+  "$ASSET_ROOT/web/main.js"
+install -m 0644 "$ASSET_ROOT/web/main.js" "$ASSET_ROOT/web/js/main.js"
 perl -0pi -e 's/\n\tdocument\.oncontextmenu = function\(\) \{\n\t\treturn false;\n\t\}//' \
   "$ASSET_ROOT/web/main.js" "$ASSET_ROOT/web/js/main.js"
 
 if LC_ALL=C rg -q 'document\.oncontextmenu' \
      "$ASSET_ROOT/web/main.js" "$ASSET_ROOT/web/js/main.js"; then
   echo "Web text-selection context menu is still disabled." >&2
+  exit 1
+fi
+
+if [[ "$(LC_ALL=C rg -F -c 'function closeHudongDialog()' \
+        "$ASSET_ROOT/web/main.js")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'hudongob.dialog("close");' \
+        "$ASSET_ROOT/web/main.js")" != "1" ]]; then
+  echo "Web dialog-close guard validation failed." >&2
+  exit 1
+fi
+
+if LC_ALL=C rg -q '92mud\.com|\$\.ajax\s*\(|window\.open\s*\(|io\.connect\s*\(' \
+     "$ASSET_ROOT/web/main.js" "$ASSET_ROOT/web/js/main.js"; then
+  echo "Web client still contains executable external-network code." >&2
+  exit 1
+fi
+
+if [[ "$(LC_ALL=C rg -F -c "sock.emit('stream', myid + '║' + mypass" \
+        "$ASSET_ROOT/web/main.js")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'logincheck(myid, mypass);' \
+        "$ASSET_ROOT/web/main.js")" != "1" ||
+      "$(LC_ALL=C rg -F -c "sock.emit('stream',mysex.val()+'║001║'" \
+        "$ASSET_ROOT/web/main.js")" != "1" ]]; then
+  echo "Web local login or registration flow validation failed." >&2
   exit 1
 fi
 
