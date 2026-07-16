@@ -1,0 +1,261 @@
+$HIY$【巫师与管理员命令】$NOR$
+
+本说明适用于安卓单机版。新创建的角色默认拥有
+(admin) 权限，可以使用 wiz、imm、arch、adm
+四级命令。旧角色如果没有管理员权限，部分命令
+可能无法执行。
+
+$HIC$一、查找命令和帮助$NOR$
+
+which <命令>
+  查看命令实际对应的源码。遇到同名命令时，应
+  先使用 which 确认。
+  例：which recover
+
+help <命令>
+  查看命令自带的详细帮助。
+  例：help clone
+
+localcmds
+  查看当前房间、人物和物品提供的动态命令。
+
+$HIC$二、常用移动、对象和文件命令$NOR$
+
+pwd                 查看当前工作目录
+cd <目录>           切换工作目录
+ls [-l] [目录]      查看目录内容
+cat <文件>          查看完整文件
+more <文件>         分页查看文件
+find <名称> in <目录>  搜索文件
+
+例：
+  cd /d/city
+  ls -l
+  more /d/city/wumiao.c
+  find wumiao in /d
+
+where <人物ID>
+  查看人物所在位置。
+
+goto <人物ID或房间路径>
+  传送到人物或指定房间。
+  例：goto /d/city/wumiao
+      goto ai_qingfeng
+
+goto quest
+  传送到当前 quest 或 bquest 的击杀目标处。
+
+summon <人物或物品>
+  将在线人物或物品移动到自己面前。
+  例：summon ranger
+
+getuser <人物ID>
+  将离线玩家载入当前房间。
+
+clone <文件路径> [数量]
+  复制物品或 NPC。
+  例：clone /clone/food/baozi 3
+
+dest [-c] <对象或文件>
+  销毁对象。-c 会销毁该文件派生的所有对象，
+  使用前必须确认目标。
+
+info <对象>         查看对象、权限和内存信息
+mem [对象]          查看对象或系统内存
+ilist <对象>        查看对象继承列表
+ff <对象> <函数>    查看函数定义位置
+
+edit <文件|here>    在线编辑文件
+update <文件|here>  重新编译文件或当前房间
+updateall <目录> [1] 批量重新编译目录
+updatei <文件> [-c] [-d] [-f]
+  查看或重新编译继承指定文件的对象。
+
+cp <源> <目标>      复制文件
+mv <源> <目标>      移动或改名
+mkdir <目录>        建立目录
+rm <文件>           删除文件
+rm -R <目录>        递归删除目录，危险
+
+$HIC$三、角色状态与技能管理$NOR$
+
+full [对象]
+  补满精、气、内力、食物和饮水，并清除异常
+  状态。full 是 imm/recover 的别名。
+  例：full
+      full ranger
+
+recover <玩家> [次数]
+  在 admin 权限下恢复玩家的死亡损失，并不是
+  补满当前状态。
+
+diecover <玩家> [次数] because <原因>
+  带记录和理由恢复死亡损失。
+
+data [-t|-d] [对象]
+  查看对象全部、临时或永久 dbase。
+  例：data -d ranger
+
+spy [对象]
+  查看先天、后天资质以及资质异常信息。
+
+setsk <对象> <技能|all> <等级>
+  设定技能等级，等级为零时删除该技能。
+  例：setsk ranger force 200
+
+copyskill <来源> [to <目标>]
+  把来源对象的属性、经验和所有技能复制给目标，
+  会覆盖目标现有技能，谨慎使用。
+
+wizlian
+  恢复自己的精、气、内力、食物和饮水。
+
+wizlian <属性> <整数>
+  修改自己的数值属性，例如：
+  wizlian exp 1000000
+  wizlian max_neili 5000
+
+wizlian <技能> <等级>
+  修改自己的技能等级，例如：
+  wizlian force 300
+
+wizlian org
+  清除自己的武功并初始化部分数据，危险。
+
+wizlian 只能修改其白名单中的数值属性和技能，
+不能修改性格、名字等字符串属性。
+
+$HIC$四、修改角色性格$NOR$
+
+角色性格保存在 character 字段。常见合法值为：
+  光明磊落
+  心狠手辣
+  阴险奸诈
+  狡黠多变
+
+修改自己的性格：
+  call me->set("character","光明磊落")
+  save
+  score
+
+修改已载入的其他角色：
+  call ranger->set("character","心狠手辣")
+  call ranger->save()
+  score ranger
+
+如果角色不在线，可先执行：
+  getuser ranger
+
+性格会影响游戏机制。例如光明磊落和心狠手辣
+具有不同的愤怒上限。修改后应保存并用 score
+检查结果。
+
+$HIC$五、玩家与权限管理$NOR$
+
+promote <玩家> <权限>
+  修改权限。可用权限包括 (player)、
+  (immortal)、(apprentice)、(wizard)、
+  (arch)、(admin)。
+  例：promote ranger (admin)
+
+auth ...            查询或修改目录读写权限
+grant ...           授予或撤销指定命令权限
+cpasswd <ID> <密码> 直接修改玩家密码
+changename <ID> <中文名> 修改玩家中文名
+register <ID> <邮箱> 修改登记邮箱
+
+kickout <玩家>      踢出玩家
+throw <ID> <时间> because <理由>  禁闭玩家
+free <ID> [时间]    释放被禁闭玩家
+ban [+|- 地址]      增加或移除地址封禁
+wizlock <权限>      限制低于指定权限者登录
+
+f <对象> do <命令>
+  强制另一个人物执行命令。
+  例：f ranger do look
+
+snoop <玩家|none>
+  监听玩家连接；none 取消监听。
+
+log <玩家>          开始记录玩家日志
+endlog <玩家>       停止记录玩家日志
+sameip <玩家|IP>    查找使用相同地址的账号
+examine <ID|-all>   检查玩家数据异常
+
+$HIC$六、系统、任务和 AI 管理$NOR$
+
+status [detail|object] 查看驱动和对象状态
+cost <命令>          测量命令执行开销
+callouts [函数]      查看系统定时器
+reclaim              回收无用对象
+rehash <命令目录>    刷新命令索引
+config               查看运行配置
+
+qinfo [任务]         查看系统任务
+qdel <任务|all>      删除系统任务
+
+aiplayer status      查看 AI 玩家状态
+aiplayer pause       暂停 AI 日常行为
+aiplayer resume      恢复 AI 日常行为
+aiplayer save        保存全部 AI 玩家
+aiplayer validate    校验 AI 配置和路线
+aiplayer selftest [ID] 执行非破坏性自检
+aiplayer inspect <ID>  查看单个 AI
+aiplayer metrics [ID]  查看运行指标
+aiplayer events <ID>   查看待处理事件
+aiplayer home <ID>     将 AI 送回常驻点
+aiplayer reset <ID>    重置单个 AI 状态
+
+例：
+  aiplayer inspect ai_qingfeng
+  aiplayer metrics ai_qingfeng
+  aiplayer reset ai_qingfeng
+
+$HIC$七、数据恢复和高风险操作$NOR$
+
+restore <ID> from <last|1..7|temp|dump>
+  从备份恢复玩家数据。
+
+cleartemp <ID>
+  清除 restore 产生的玩家临时档。
+
+clear ...
+  清除玩家或数据库对象的关联记录。
+
+purge <ID> because <原因>
+  永久删除玩家数据，极度危险。
+
+reboot after <分钟>  安排保存后重启
+reboot cancel         取消计划重启
+shutdown              不保存运行数据并强制重启
+
+以下操作可能造成大量数据或源码不可恢复的损失：
+  rm -R
+  dest -c
+  clear -remove
+  purge
+  shutdown
+  wizlian org
+
+执行高风险命令前，应先退出游戏并备份安卓应用
+私有目录中的 runtime 数据。
+
+$HIC$八、单机版限制和命令陷阱$NOR$
+
+1. recover 存在同名命令。admin 账号输入 recover
+   会恢复死亡损失；补满状态请使用 full。
+
+2. rnemote 在 admin 目录中被同名旧命令覆盖，
+   不应把它当作表情改名命令使用。
+
+3. telnet、version sync 和跨服消息在单机版中
+   已离线化，不会连接外部服务器。
+
+4. build、diejia、sbb、shell、shome、sitem、
+   slog、sname、suser、sp、sp2、sump 等属于
+   发布、历史迁移或临时维护命令。部分内置帮助
+   与实际代码不一致，不建议在正常存档中执行。
+
+5. 对不熟悉的命令，先执行 which 和 help，确认
+   实际命令文件、参数和影响后再操作。
+

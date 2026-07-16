@@ -87,9 +87,30 @@ iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/ai-playerd.c" \
   > "$WORK_ROOT/payload/adm/daemons/ai_playerd.c"
 iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/aiplayer.c" \
   > "$WORK_ROOT/payload/cmds/adm/aiplayer.c"
+iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/help-wizard-commands" \
+  > "$WORK_ROOT/payload/help/system/wizard_commands"
 chmod 0644 \
   "$WORK_ROOT/payload/adm/daemons/ai_playerd.c" \
-  "$WORK_ROOT/payload/cmds/adm/aiplayer.c"
+  "$WORK_ROOT/payload/cmds/adm/aiplayer.c" \
+  "$WORK_ROOT/payload/help/system/wizard_commands"
+
+help_topics_utf8="$WORK_ROOT/help-topics.utf8"
+iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/help/tit/topics" \
+  > "$help_topics_utf8"
+perl -0pi -e 's|(游戏简介:help system/intro\$zj\#\n)|$1巫师命令:help system/wizard_commands\$zj\#\n|' \
+  "$help_topics_utf8"
+iconv -f UTF-8 -t GB18030 "$help_topics_utf8" \
+  > "$WORK_ROOT/payload/help/tit/topics"
+
+if [[ "$(LC_ALL=C rg -F -c 'help system/wizard_commands' \
+        "$WORK_ROOT/payload/help/tit/topics")" != "1" ]] ||
+   [[ "$(LC_ALL=C rg -F -c 'call me->set("character","' \
+        "$WORK_ROOT/payload/help/system/wizard_commands")" != "1" ]] ||
+   [[ "$(LC_ALL=C rg -F -c 'aiplayer validate' \
+        "$WORK_ROOT/payload/help/system/wizard_commands")" != "1" ]]; then
+  echo "Wizard help documentation validation failed." >&2
+  exit 1
+fi
 mkdir -p "$WORK_ROOT/payload/d/standalone"
 iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/ai-test-room.c" \
   > "$WORK_ROOT/payload/d/standalone/ai_test.c"

@@ -191,9 +191,8 @@ FluffOS ARM64 shared library + zjmud mudlib
 
 - 使用 Android Storage Access Framework 导入和导出存档。
 - Release keystore、正式签名、版本号策略、native symbols 和发布流水线。
-- 多台 ARM64 真机、多个 Android 版本和厂商省电策略的兼容矩阵。
-- 超过 30 分钟的新增 v1.8 战斗策略稳定性回归；v1.7 已完成一小时 Doze、低内存、重启和覆盖升级。
-- AI 玩家跨区域寻路、任务规划、经济行为、主动组队/PK、长期记忆和外部语言模型接入。
+- AI 玩家跨区域旅行、结构化社会记忆、玩家邀请的有限同行、注册任务图和可选生成式表达
+  尚未实现；主动 PK 和任意组队明确不在规划范围。
 - 面向任意 zjmud 版本的通用导入器；当前只接受上面固定哈希的源码包。
 - 恢复任何联网服功能。若未来需要多人或跨设备访问，应重新设计认证、端口暴露、TLS、
   备份和管理员权限，而不是直接放开当前本机端口。
@@ -220,6 +219,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - [产品与验收要求](docs/REQUIREMENTS.md)
 - [技术架构](docs/ARCHITECTURE.md)
 - [实施计划](docs/IMPLEMENTATION_PLAN.md)
+- [AI 玩家能力开发路线图](docs/AI_DEVELOPMENT_ROADMAP.md)
 - [构建与打包](docs/BUILD_AND_RELEASE.md)
 - [开发环境](docs/DEVELOPMENT_ENVIRONMENT.md)
 - [测试计划](docs/TEST_PLAN.md)
