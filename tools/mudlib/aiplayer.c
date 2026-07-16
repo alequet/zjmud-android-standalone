@@ -72,6 +72,7 @@ private int show_inspect(string value)
 		"关系记忆：%d  下次行动：%d 秒  跟踪：%s\n"
 		"当前时段：%s  待处理事件：%d\n"
 		"当前活动：%s  步骤：%s  目标：%s\n"
+		"战斗决策：%s  攻击者：%s  原因：%s  撤退尝试：%d\n"
 		"最近房间：%s\n"
 		"最近活动：%s  结果：%s\n",
 		status["name"], id, status["room"], status["room_path"],
@@ -85,6 +86,8 @@ private int show_inspect(string value)
 		status["period"], status["pending_events"],
 		status["activity"], status["activity_step"],
 		status["activity_target"],
+		status["combat_state"], status["combat_attacker"],
+		status["combat_reason"], status["combat_retreat_attempts"],
 		arrayp(recent) && sizeof(recent) ? implode(recent, " -> ") : "无",
 		mapp(last_activity) ? last_activity["name"] : "无",
 		mapp(last_activity) ? last_activity["outcome"] : "无"));
@@ -123,6 +126,7 @@ private int show_metrics(string value)
 			"  recovery migrations=%d cancellations=%d checkpoints=%d failed=%d reconciliations=%d\n"
 			"  route failures=%d relocations=%d\n"
 			"  adapters attempts=%d success=%d precondition=%d command=%d postcondition=%d\n"
+			"  defense observed=%d defended=%d retreat_decisions=%d attempts=%d success=%d failed=%d trapped=%d recoveries=%d\n"
 			"  scenarios started=%d passed=%d failed=%d\n",
 			id, time() - data["started_at"], data["actions"],
 			data["action_failures"], data["errors"], data["respawns"],
@@ -144,6 +148,12 @@ private int show_metrics(string value)
 			data["adapter_precondition_failures"],
 			data["adapter_command_failures"],
 			data["adapter_postcondition_failures"],
+			data["combat_observations"], data["combat_defenses"],
+			data["combat_retreat_decisions"],
+			data["combat_retreat_attempts"],
+			data["combat_retreat_successes"],
+			data["combat_retreat_failures"], data["combat_trapped"],
+			data["combat_recoveries"],
 			data["scenarios_started"], data["scenarios_passed"],
 			data["scenarios_failed"]);
 	}
@@ -161,6 +171,7 @@ private int show_recovery(string value)
 	string partner;
 	string room;
 	string outcome;
+	string combat;
 
 	id = resolve_id(value);
 	if (! stringp(id) || ! mapp(status = AI_PLAYER_D->query_recovery_status(id)))
@@ -172,15 +183,16 @@ private int show_recovery(string value)
 	room = stringp(status["room"]) ? status["room"] : "none";
 	outcome = stringp(status["last_outcome"]) ?
 		status["last_outcome"] : "none";
+	combat = stringp(status["combat_state"]) ? status["combat_state"] : "idle";
 	write(sprintf(
 		"AI_RECOVERY id=%s schema=%d active=%d activity=%s action=%s step=%s "
 		"partner=%s synthetic=%d room=%s last_outcome=%s money=%d "
 		"food_items=%d water_items=%d food=%d water=%d busy=%d fighting=%d "
-		"pending=%d save_in=%d scenario=%d\n",
+		"combat=%s pending=%d save_in=%d scenario=%d\n",
 		id, status["schema"], status["active"], activity, action, step,
 		partner, status["synthetic"], room, outcome, status["money"],
 		status["food_items"], status["water_items"], status["food"],
-		status["water"], status["busy"], status["fighting"],
+		status["water"], status["busy"], status["fighting"], combat,
 		status["pending"], status["save_in"], status["scenario"]));
 	return 1;
 }
@@ -223,12 +235,27 @@ private int show_scenario(string value)
 	write(sprintf(
 		"%s 隔离场景：%s\n"
 		"状态：%s  开始事件：%s  结束事件：%s  已恢复：%s\n"
-		"原房间：%s  待处理事件：%d  详情：%s\n",
+		"决策：%s  尝试撤退：%s  已撤退：%s  受困：%s\n"
+		"失能：%s  死亡：%s  复活：%s\n"
+		"原房间：%s  待处理事件：%d  详情：%s\n"
+		"AI_SCENARIO id=%s mode=%s status=%s decision=%s attempted=%d attempts=%d "
+		"retreated=%d trapped=%d incapacitated=%d death=%d respawned=%d restored=%d\n",
 		id, status["type"], status["status"],
 		status["start_event"] ? "是" : "否",
 		status["end_event"] ? "是" : "否",
 		status["restored"] ? "是" : "否",
-		status["original_room"], status["pending_events"], status["detail"]));
+		status["decision"],
+		status["retreat_attempted"] ? "是" : "否",
+		status["retreated"] ? "是" : "否",
+		status["trapped"] ? "是" : "否",
+		status["incapacitated"] ? "是" : "否",
+		status["death_observed"] ? "是" : "否",
+		status["respawned"] ? "是" : "否",
+		status["original_room"], status["pending_events"], status["detail"],
+		id, status["type"], status["status"], status["decision"],
+		status["retreat_attempted"], status["retreat_attempts"], status["retreated"],
+		status["trapped"], status["incapacitated"],
+		status["death_observed"], status["respawned"], status["restored"]));
 	return 1;
 }
 
@@ -380,6 +407,16 @@ int main(object me, string arg)
 		write(id + " 已启动隔离非致死战斗场景。\n");
 		return 1;
 	}
+	if (sscanf(arg, "scenario defense %s %s", value, mode) == 2)
+	{
+		id = resolve_id(value);
+		if (! stringp(id) || member_array(mode, ({ "defend", "retreat",
+		    "noexit", "blocked", "unconscious", "death" })) == -1 ||
+		    ! AI_PLAYER_D->start_combat_scenario(id, mode))
+			return notify_fail("无法启动有限自卫场景；模式必须是 defend、retreat、noexit、blocked、unconscious 或 death。\n");
+		write(id + " 已启动有限自卫场景 " + mode + "。\n");
+		return 1;
+	}
 	if (sscanf(arg, "scenario status %s", value) == 1)
 		return show_scenario(value);
 	if (sscanf(arg, "activity supplies %s %s", value, mode) == 2)
@@ -434,11 +471,11 @@ int main(object me, string arg)
 		write(id + " 的行为状态、生命状态和位置已复位。\n");
 		return 1;
 	}
-	return notify_fail("用法：aiplayer [status|pause|resume|reload|save|metrics [id]|events <id>|recovery <id>|recovery prepare <id> <supplies|savepoint|legacy|invalid>|validate|selftest [id]|stability|scenario combat <id>|scenario status <id>|activity supplies <id>|activity supplies <id> seed|activity run <id> <activity>|inspect <id>|trace <id> <on|off>|home <id>|reset <id>]\n");
+	return notify_fail("用法：aiplayer [status|pause|resume|reload|save|metrics [id]|events <id>|recovery <id>|recovery prepare <id> <supplies|savepoint|legacy|invalid>|validate|selftest [id]|stability|scenario combat <id>|scenario defense <id> <defend|retreat|noexit|blocked|unconscious|death>|scenario status <id>|activity supplies <id>|activity supplies <id> seed|activity run <id> <activity>|inspect <id>|trace <id> <on|off>|home <id>|reset <id>]\n");
 }
 
 int help(object me)
 {
-	write("用法：aiplayer [status|pause|resume|reload|save|metrics [id]|events <id>|recovery <id>|recovery prepare <id> <supplies|savepoint|legacy|invalid>|validate|selftest [id]|stability|scenario combat <id>|scenario status <id>|activity supplies <id>|activity supplies <id> seed|activity run <id> <activity>|inspect <id>|trace <id> <on|off>|home <id>|reset <id>]\n");
+	write("用法：aiplayer [status|pause|resume|reload|save|metrics [id]|events <id>|recovery <id>|recovery prepare <id> <supplies|savepoint|legacy|invalid>|validate|selftest [id]|stability|scenario combat <id>|scenario defense <id> <defend|retreat|noexit|blocked|unconscious|death>|scenario status <id>|activity supplies <id>|activity supplies <id> seed|activity run <id> <activity>|inspect <id>|trace <id> <on|off>|home <id>|reset <id>]\n");
 	return 1;
 }

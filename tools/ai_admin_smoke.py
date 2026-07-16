@@ -30,6 +30,14 @@ REST_ACTIVITIES = {
     "ai_yanqiu": ("quiet_rest", "静坐调息"),
     "ai_zhiyuan": ("gate_rest", "山门静息"),
 }
+DEFENSE_SCENARIOS = (
+    ("ai_qingfeng", "defend", ("decision=defend", "attempted=0")),
+    ("ai_wantang", "retreat", ("decision=retreat", "attempted=1", "retreated=1")),
+    ("ai_yanqiu", "noexit", ("decision=retreat", "attempted=0", "trapped=1")),
+    ("ai_zhiyuan", "blocked", ("decision=retreat", "attempted=1", "attempts=3", "trapped=1")),
+    ("ai_songlan", "unconscious", ("incapacitated=1",)),
+    ("ai_qingfeng", "death", ("death=1", "respawned=1")),
+)
 CREATE_CHARACTER = "\x1b0000008"
 LOGIN_SUCCEEDED = "\x1b0000007"
 WORLD_READY = "\x1b002"
@@ -143,6 +151,32 @@ def run_behavior_checks(client: MudClient) -> None:
     )
 
 
+def run_defense_scenarios(client: MudClient) -> None:
+    for ai_id, mode, markers in DEFENSE_SCENARIOS:
+        client.command(f"aiplayer reset {ai_id}", 0.5)
+        started = ""
+        for _ in range(15):
+            started = client.command(f"aiplayer scenario defense {ai_id} {mode}", 0.6)
+            if f"已启动有限自卫场景 {mode}" in started:
+                break
+            time.sleep(1)
+        require(started, f"已启动有限自卫场景 {mode}", f"start defense {mode}")
+
+        deadline = time.monotonic() + 20
+        status = ""
+        while time.monotonic() < deadline:
+            status = client.command(f"aiplayer scenario status {ai_id}", 0.5)
+            if f"mode={mode} status=passed" in status:
+                break
+            if f"mode={mode} status=failed" in status:
+                raise RuntimeError(f"defense scenario {mode} failed:\n{status[-3000:]}")
+            time.sleep(0.5)
+        require(status, f"mode={mode} status=passed", f"defense scenario {mode}")
+        require(status, "restored=1", f"defense restore {mode}")
+        for marker in markers:
+            require(status, marker, f"defense postcondition {mode}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
@@ -150,7 +184,11 @@ def main() -> int:
     parser.add_argument("--account", default=DEFAULT_ID)
     parser.add_argument("--password", default=DEFAULT_PASSWORD)
     parser.add_argument("--name", default=DEFAULT_NAME)
-    parser.add_argument("--scenarios", action="store_true", help="Run all five isolated combat scenarios")
+    parser.add_argument(
+        "--scenarios",
+        action="store_true",
+        help="Run the six-mode finite-defense matrix and the supply adapter scenario",
+    )
     parser.add_argument("--behaviors", action="store_true", help="Run patrol, rest, and social activity checks")
     args = parser.parse_args()
 
@@ -173,19 +211,7 @@ def main() -> int:
         if args.scenarios:
             client.command("aiplayer pause", 1.0)
             scenarios_paused = True
-            for ai_id in AI_IDS:
-                client.command(f"aiplayer reset {ai_id}", 1.0)
-                started = ""
-                for _ in range(15):
-                    started = client.command(f"aiplayer scenario combat {ai_id}", 1.0)
-                    if "已启动隔离非致死战斗场景" in started:
-                        break
-                    time.sleep(1)
-                require(started, "已启动隔离非致死战斗场景", f"start scenario {ai_id}")
-                time.sleep(6)
-                status = client.command(f"aiplayer scenario status {ai_id}", 1.0)
-                require(status, "状态：passed", f"scenario status {ai_id}")
-                require(status, "已恢复：是", f"scenario restore {ai_id}")
+            run_defense_scenarios(client)
 
             client.command("aiplayer reset ai_wantang", 1.0)
             supplies = ""

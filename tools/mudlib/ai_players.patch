@@ -1,6 +1,6 @@
 --- a/clone/user/user.c
 +++ b/clone/user/user.c
-@@ -44,10 +44,58 @@
+@@ -44,10 +44,76 @@
  string  query_prison()	  { return prison; }
  int     query_time_to_leave()   { return time_to_leave; }
  int     is_in_prison()	  { return stringp(prison); }
@@ -18,6 +18,24 @@
 +
 +    seteuid(0);
 +    return ! stringp(geteuid(this_object()));
++}
++
++int inject_ai_death_state()
++{
++    if (! is_ai_player() ||
++        base_name(previous_object()) != "/adm/daemons/ai_playerd")
++        return 0;
++
++    if (! living(this_object()))
++        revive(1);
++    remove_all_enemy(1);
++    remove_all_killer();
++    ghost = 1;
++    set("qi", 1);
++    set("eff_qi", 1);
++    set("jing", 1);
++    set("eff_jing", 1);
++    return is_ghost();
 +}
 +
 +int activate_ai_uid()

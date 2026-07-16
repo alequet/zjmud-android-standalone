@@ -30,3 +30,24 @@ void create()
 	set_skill("parry", 1);
 	setup();
 }
+
+void configure_for_ai(object me, string mode)
+{
+	int exp;
+
+	if (! objectp(me) || ! stringp(mode))
+		return;
+	if (member_array(mode, ({ "retreat", "noexit", "blocked" })) != -1)
+	{
+		exp = me->query("combat_exp") * 3;
+		if (exp < 1)
+			exp = 1;
+		set("combat_exp", exp);
+		set("ai_test_threat", "overmatched");
+	} else
+	{
+		set("combat_exp", 1);
+		set("ai_test_threat", "weak");
+	}
+	set("ai_test_mode", mode);
+}

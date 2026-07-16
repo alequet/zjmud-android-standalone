@@ -290,11 +290,26 @@ Web 客户端不再覆盖 `document.oncontextmenu`，Android `WebView` 保持长
   `social_wait` 只允许合法角色、同区域安全目标，五名角色加载后还会对账双方 partner 与
   target，不一致时解除。活动开始/完成、巡游推进、休息开始、结伴邀请、购买和消费后立即
   原子保存；购物恢复依靠已保存的货币与物品后置状态保持幂等。
+- v1.7 第4项补齐 Android 生命周期契约：服务在 `:mud` 进程持有 partial wake lock，前台/后台
+  切换、UI/WebView 进程重建和 critical trim-memory 不应改变 MUD PID 或 AI 心跳；完整
+  `am force-stop`、设备重启和单杀服务进程则必须在用户重新启动 Activity 后恢复 5+5 存档。
+  Doze/熄屏测试覆盖 3600 秒并校验 300 秒存档推进；覆盖安装 v1.6 runtime 后验证 schema
+  迁移。wake lock 是单机持续运行的明确电量取舍，不把用户强制停止或 OEM 策略当作可保证状态。
+- v1.8 用守护进程接管 AI 角色的逃跑决策，并将原玩家心跳的随机 `env/wimpy` 出口关闭。
+  每两秒从真实敌对对象构造威胁上下文：主动攻击者、最强敌人经验、敌人数、自身气血比例、
+  角色胆量阈值和安全出口数。状态限定为 `idle/observe/defend/retreat/trapped/recover`，另记录
+  `incapacitated/dead`；伤害和被动还击仍由原 `fight_ob`/战斗心跳处理，策略层不发出 `fight`
+  或 `kill`。弱威胁只自卫；低气血或敌人经验达到 2.5 倍时选择撤退；出口必须留在角色区域、
+  通过房间安全校验且目标房间无战斗者。真实 `go` 失败最多尝试 3 次，之后进入 `trapped`
+  并继续原生自卫，不传送、不追击、不跨区域。战斗结束后进入恢复，气血达到 55% 再恢复日程。
+  隔离死亡回归不直接调用带成长惩罚的 `die()`；角色对象提供仅允许 `ai_playerd` 调用且只接受
+  AI 账号的幽灵态注入入口，之后仍由生产心跳观察死亡并执行 `respawn_player()`。
 - 每 300 秒保存一次，守护移除和 MUD 关闭时保存全部角色。管理员可用
   `aiplayer status|pause|resume|reload|save` 控制全局；`metrics [id]` 查看动作、错误、BFS 节点、
   缓存、事件和活动计数，`events <id>` 查看待处理队列，`validate` 校验日程与路径，
   `selftest [id]` 做非破坏性队列/关系/缓存/活动自检，并可用
-  `inspect/trace/home/reset <id>` 查看或恢复单个角色。`scenario combat <id>` 运行隔离战斗回归，
+  `inspect/trace/home/reset <id>` 查看或恢复单个角色。`scenario combat <id>` 保持兼容的弱敌自卫
+  回归；`scenario defense <id> <defend|retreat|noexit|blocked|unconscious|death>` 运行 v1.8 矩阵，
   `scenario status <id>` 查看结果，`activity supplies <id>` 强制补给活动；`recovery <id>`
   提供 schema、步骤、伙伴、房间、资源和保存倒计时的机器可读快照。仅测试时使用
   `activity supplies <id> seed` 注入 30 银验证真实购买路径。`metrics` 还显示适配器和场景计数。

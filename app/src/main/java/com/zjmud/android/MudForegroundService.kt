@@ -10,6 +10,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.os.Process
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -18,9 +19,11 @@ import kotlin.concurrent.thread
 class MudForegroundService : Service() {
     @Volatile
     private var driverThread: Thread? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
+        acquireWakeLock()
         createNotificationChannel()
         ServiceCompat.startForeground(
             this,
@@ -62,6 +65,7 @@ class MudForegroundService : Service() {
     override fun onDestroy() {
         requestDriverStop()
         runCatching { driverThread?.join(DRIVER_STOP_TIMEOUT_MS) }
+        releaseWakeLock()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
@@ -70,6 +74,25 @@ class MudForegroundService : Service() {
 
     private fun requestDriverStop() {
         runCatching { NativeBridge.requestStop() }
+    }
+
+    @Suppress("WakelockTimeout")
+    private fun acquireWakeLock() {
+        val powerManager = getSystemService(PowerManager::class.java)
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "$packageName:mud-runtime",
+        ).apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.let { lock ->
+            if (lock.isHeld) lock.release()
+        }
+        wakeLock = null
     }
 
     private fun createNotificationChannel() {

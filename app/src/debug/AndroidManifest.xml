@@ -6,6 +6,7 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="com.zjmud.android.DEBUG_KILL_MUD_PROCESS" />
+                <action android:name="com.zjmud.android.DEBUG_KILL_UI_PROCESS" />
             </intent-filter>
         </receiver>
     </application>

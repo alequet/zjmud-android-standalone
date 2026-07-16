@@ -52,8 +52,8 @@ SHA-256: 2eee2ab12f81a3a7a7f5824a552f85f9d287c6d3dbfb03c4b1e2c0bfc2578ba0
 10. 打成单一 payload 归档，作为 APK asset。
 
 当前入口为 `tools/import_zjmud.sh`。归档使用排序条目、固定时间戳和无扩展属性的标准
-ZIP；必须能被 Java `ZipInputStream` 完整读出 12,083 个条目。当前确定性 SHA-256 为
-`e48d355a58275f8603460a86a71bfe259365cd06709f5fb9334b0ccddfd2309d`。
+ZIP；必须能被 Java `ZipInputStream` 完整读出全部条目。当前确定性 SHA-256 为
+`5aebf990587d4be3b313a992b38a1bed7f1e0f2440e5ec933bde480380141589`。
 
 导入时还必须确认 5 份 AI 分时日程、角色活动、自检接口、结构化 `ask` hook、事件/指标 API、管理命令、
 隔离测试房间/木桩和所有
@@ -71,6 +71,21 @@ tools/ai_admin_smoke.py --scenarios
 tools/ai_admin_smoke.py --behaviors
 tools/test_ai_player_stability.py --duration 1800 --interval 60
 ```
+
+v1.7 第4项生命周期验收需要先从基线提交构建兼容 APK，再安装当前 Debug APK：
+
+```bash
+git worktree add --detach /tmp/zjmud-v16 34c83e6
+(cd /tmp/zjmud-v16 && ./gradlew assembleDebug)
+tools/test_ai_player_recovery.py --lifecycle --yes \
+  --legacy-apk /tmp/zjmud-v16/app/build/outputs/apk/debug/app-debug.apk \
+  --current-apk app/build/outputs/apk/debug/app-debug.apk
+git worktree remove /tmp/zjmud-v16
+```
+
+`--lifecycle` 包含 3600 秒 Doze/熄屏，因此完整验收通常超过一小时；快速调试可传
+`--screen-off-seconds 60`，但不能替代发布前的 3600 秒结果。`MudForegroundService` 的
+partial wake lock 必须在 `onDestroy()` 释放，release manifest 不得包含 debug 故障 receiver。
 
 对于 ZIP 中编码异常的文件名，不得由 Java `ZipInputStream` 猜测编码后直接重写。应先
 确定 FluffOS 实际访问的名字字节；若文件未被引用，可在 allowlist 中显式排除；若被引用，
@@ -178,7 +193,7 @@ binary directory : <应用私有目录中的绝对路径>
 Release APK 在签名前必须验证不包含 Windows 二进制、Node.js 依赖目录、私有构建缓存
 或临时导出存档。
 
-当前 v1.7 Debug APK 为 22,894,820 字节，SHA-256 为
-`147c5c94ff51c0be8a76982a54de35252c796fc3af625d3fadaaa1583c2e675b`；对应 runtime 为
-9,951,281 字节，SHA-256 为
-`e48d355a58275f8603460a86a71bfe259365cd06709f5fb9334b0ccddfd2309d`。
+当前 v1.8 Debug APK 为 22,900,027 字节，SHA-256 为
+`d7bd419e69346a801fbdd51b3d348edee21036771ed7d9a3fdef52da7a4e08fe`；对应 runtime 为
+9,957,187 字节，SHA-256 为
+`5aebf990587d4be3b313a992b38a1bed7f1e0f2440e5ec933bde480380141589`。

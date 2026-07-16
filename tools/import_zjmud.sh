@@ -93,9 +93,18 @@ chmod 0644 \
 mkdir -p "$WORK_ROOT/payload/d/standalone"
 iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/ai-test-room.c" \
   > "$WORK_ROOT/payload/d/standalone/ai_test.c"
+iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/ai-test-retreat-room.c" \
+  > "$WORK_ROOT/payload/d/standalone/ai_test_retreat.c"
+iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/ai-test-blocked-room.c" \
+  > "$WORK_ROOT/payload/d/standalone/ai_test_blocked.c"
+iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/ai-test-safe-room.c" \
+  > "$WORK_ROOT/payload/d/standalone/ai_test_safe.c"
 iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/ai-test-dummy.c" \
   > "$WORK_ROOT/payload/clone/npc/ai_test_dummy.c"
 chmod 0644 "$WORK_ROOT/payload/d/standalone/ai_test.c" \
+  "$WORK_ROOT/payload/d/standalone/ai_test_retreat.c" \
+  "$WORK_ROOT/payload/d/standalone/ai_test_blocked.c" \
+  "$WORK_ROOT/payload/d/standalone/ai_test_safe.c" \
   "$WORK_ROOT/payload/clone/npc/ai_test_dummy.c"
 printf '\n%s\n' '/adm/daemons/ai_playerd' >> "$WORK_ROOT/payload/adm/etc/preload"
 install -m 0644 "$REPO_ROOT/tools/mudlib/offline-gchannel.c" \
@@ -135,6 +144,8 @@ if [[ "$(LC_ALL=C rg -F -c 'int     is_ai_player()' \
       "$(LC_ALL=C rg -F -c '"/adm/daemons/ai_playerd"->hear_say' \
         "$WORK_ROOT/payload/clone/user/user.c")" != "1" ||
       "$(LC_ALL=C rg -F -c 'int prepare_ai_runtime()' \
+        "$WORK_ROOT/payload/clone/user/user.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'int inject_ai_death_state()' \
         "$WORK_ROOT/payload/clone/user/user.c")" != "1" ||
       "$(LC_ALL=C rg -F -c 'int prepare_ai_uid_export()' \
         "$WORK_ROOT/payload/clone/user/user.c")" != "1" ||
@@ -184,6 +195,10 @@ if [[ "$(LC_ALL=C rg -F -c 'int     is_ai_player()' \
         "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
       "$(LC_ALL=C rg -F -c 'mapping query_scenario_status' \
         "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'private void manage_combat' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "2" ||
+      "$(LC_ALL=C rg -F -c 'private int attempt_combat_retreat' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "2" ||
       "$(LC_ALL=C rg -F -c 'private void clear_scenario_events' \
         "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "2" ||
       "$(LC_ALL=C rg -F -c 'int start_supply_activity' \
@@ -227,11 +242,20 @@ if [[ "$(LC_ALL=C rg -F -c 'AI_STABILITY objects=%d players=%d profiles=%d pause
 fi
 
 if [[ ! -f "$WORK_ROOT/payload/d/standalone/ai_test.c" ||
+      ! -f "$WORK_ROOT/payload/d/standalone/ai_test_retreat.c" ||
+      ! -f "$WORK_ROOT/payload/d/standalone/ai_test_blocked.c" ||
+      ! -f "$WORK_ROOT/payload/d/standalone/ai_test_safe.c" ||
       ! -f "$WORK_ROOT/payload/clone/npc/ai_test_dummy.c" ||
       "$(LC_ALL=C rg -F -c 'set("ai_test_room", 1);' \
         "$WORK_ROOT/payload/d/standalone/ai_test.c")" != "1" ||
       "$(LC_ALL=C rg -F -c 'set("ai_test_dummy", 1);' \
-        "$WORK_ROOT/payload/clone/npc/ai_test_dummy.c")" != "1" ]]; then
+        "$WORK_ROOT/payload/clone/npc/ai_test_dummy.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'configure_for_ai' \
+        "$WORK_ROOT/payload/clone/npc/ai_test_dummy.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'ai_test_safe' \
+        "$WORK_ROOT/payload/d/standalone/ai_test_retreat.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'ai_test_block_exit' \
+        "$WORK_ROOT/payload/d/standalone/ai_test_blocked.c")" != "1" ]]; then
   echo "AI isolated scenario assets validation failed." >&2
   exit 1
 fi

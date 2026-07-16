@@ -18,7 +18,13 @@
 #define AI_ACTIVITY_START_DELAY 20
 #define AI_ACTIVITY_SCHEMA_VERSION 2
 #define AI_ACTIVITY_TIMEOUT 900
+#define AI_COMBAT_DECISION_INTERVAL 2
+#define AI_RETREAT_MAX_ATTEMPTS 3
+#define AI_COMBAT_RECOVERY_PERCENT 55
 #define AI_TEST_ROOM "/d/standalone/ai_test"
+#define AI_TEST_RETREAT_ROOM "/d/standalone/ai_test_retreat"
+#define AI_TEST_BLOCKED_ROOM "/d/standalone/ai_test_blocked"
+#define AI_TEST_SAFE_ROOM "/d/standalone/ai_test_safe"
 #define AI_TEST_DUMMY "/clone/npc/ai_test_dummy"
 
 #define ADAPTER_SUCCESS 1
@@ -379,6 +385,13 @@ private int run_action(object me, string verb, string arg);
 private string current_period();
 private string find_route_step(object me, string start, string target, string zone);
 private void perceive_world(object me, mapping profile);
+private void manage_combat(object me, mapping profile);
+private mapping build_threat_context(object me, mapping profile);
+private string *combat_safe_exits(object me, mapping profile);
+private int attempt_combat_retreat(object me, mapping profile,
+	mapping threat);
+private void set_combat_state(object me, string state, mapping threat,
+	string reason);
 private int handle_next_event(object me, mapping profile);
 private int run_activity(object me, mapping profile);
 private void interrupt_activity(object me, string reason);
@@ -473,6 +486,14 @@ private mapping metric_bucket(string id)
 			"activity_checkpoints" : 0,
 			"activity_checkpoint_failures" : 0,
 			"social_reconciliations" : 0,
+			"combat_observations" : 0,
+			"combat_defenses" : 0,
+			"combat_retreat_decisions" : 0,
+			"combat_retreat_attempts" : 0,
+			"combat_retreat_successes" : 0,
+			"combat_retreat_failures" : 0,
+			"combat_trapped" : 0,
+			"combat_recoveries" : 0,
 		]);
 		metrics[id] = bucket;
 	}
@@ -532,6 +553,7 @@ mapping query_player_status(string id)
 	string intent;
 	string last_action;
 	mapping activity;
+	mapping combat;
 
 	if (! mapp(profiles[id]) || ! objectp(me = actors[id]))
 		return 0;
@@ -543,6 +565,7 @@ mapping query_player_status(string id)
 	intent = me->query("ai/state/intent");
 	last_action = me->query("ai/state/last_action");
 	activity = me->query("ai/state/activity");
+	combat = me->query_temp("ai/combat");
 	status = ([
 		"id" : id,
 		"name" : me->query("name"),
@@ -584,6 +607,13 @@ mapping query_player_status(string id)
 		"activity_partner" : mapp(activity) ? activity["partner"] : "",
 		"activity_synthetic" : mapp(activity) && activity["synthetic"] ? 1 : 0,
 		"last_activity" : me->query("ai/state/last_activity"),
+		"combat_state" : mapp(combat) ? combat["state"] : "idle",
+		"combat_attacker" : mapp(combat) ? combat["attacker_id"] : "none",
+		"combat_reason" : mapp(combat) ? combat["reason"] : "none",
+		"combat_qi_percent" : mapp(combat) ? combat["qi_percent"] : 100,
+		"combat_enemy_exp" : mapp(combat) ? combat["enemy_exp"] : 0,
+		"combat_safe_exits" : mapp(combat) ? combat["safe_exits"] : 0,
+		"combat_retreat_attempts" : mapp(combat) ? combat["attempts"] : 0,
 	]);
 	return status;
 }
@@ -627,6 +657,8 @@ mapping query_recovery_status(string id)
 		"pending" : arrayp(event_queues[id]) ? sizeof(event_queues[id]) : 0,
 		"save_in" : save_in,
 		"scenario" : me->query_temp("ai/scenario") ? 1 : 0,
+		"combat_state" : mapp(me->query_temp("ai/combat")) ?
+			me->query_temp("ai/combat")["state"] : "idle",
 	]);
 }
 
@@ -701,6 +733,14 @@ mapping query_scenario_status(string id)
 		"start_event" : scenario["start_event"] ? 1 : 0,
 		"end_event" : scenario["end_event"] ? 1 : 0,
 		"restored" : scenario["restored"] ? 1 : 0,
+		"decision" : scenario["decision"],
+		"retreat_attempted" : scenario["retreat_attempted"] ? 1 : 0,
+		"retreat_attempts" : scenario["retreat_attempts"],
+		"retreated" : scenario["retreated"] ? 1 : 0,
+		"trapped" : scenario["trapped"] ? 1 : 0,
+		"incapacitated" : scenario["incapacitated"] ? 1 : 0,
+		"death_observed" : scenario["death_observed"] ? 1 : 0,
+		"respawned" : scenario["respawned"] ? 1 : 0,
 		"pending_events" : arrayp(event_queues[id]) ?
 			sizeof(event_queues[id]) : 0,
 		"detail" : scenario["detail"],
@@ -708,15 +748,22 @@ mapping query_scenario_status(string id)
 	return result;
 }
 
-int start_combat_scenario(string id)
+varargs int start_combat_scenario(string id, string mode)
 {
 	object me;
 	object room;
 	object dummy;
 	mapping scenario;
 	string other_id;
+	string room_file;
 	string error;
+	int qi_max;
 
+	if (! stringp(mode) || mode == "combat")
+		mode = "defend";
+	if (member_array(mode, ({ "defend", "retreat", "noexit", "blocked",
+	    "unconscious", "death" })) == -1)
+		return 0;
 	if (! mapp(profiles[id]) || ! objectp(me = actors[id]) ||
 	    me->is_ghost() || me->is_fighting() || me->is_busy() ||
 	    ! objectp(environment(me)))
@@ -728,8 +775,14 @@ int start_combat_scenario(string id)
 		     scenarios[other_id]["status"] == "stopping"))
 			return 0;
 
-	error = catch(call_other(AI_TEST_ROOM, "???"));
-	room = find_object(AI_TEST_ROOM);
+	if (mode == "retreat")
+		room_file = AI_TEST_RETREAT_ROOM;
+	else if (mode == "blocked")
+		room_file = AI_TEST_BLOCKED_ROOM;
+	else
+		room_file = AI_TEST_ROOM;
+	error = catch(call_other(room_file, "???"));
+	room = find_object(room_file);
 	if (stringp(error) || ! objectp(room))
 		return 0;
 	dummy = new(AI_TEST_DUMMY);
@@ -737,7 +790,7 @@ int start_combat_scenario(string id)
 		return 0;
 
 	scenario = ([
-		"type" : "combat",
+		"type" : mode,
 		"status" : "preparing",
 		"started_at" : time(),
 		"original_room" : base_name(environment(me)),
@@ -746,6 +799,9 @@ int start_combat_scenario(string id)
 		"jing" : me->query("jing"),
 		"eff_jing" : me->query("eff_jing"),
 		"neili" : me->query("neili"),
+		"dietimes" : me->query("combat/dietimes"),
+		"death_last" : me->query("die_protect/last_dead"),
+		"death_duration" : me->query("die_protect/duration"),
 		"activity" : mapp(me->query("ai/state/activity")) ?
 			copy(me->query("ai/state/activity")) : 0,
 		"goal" : me->query("ai/state/goal"),
@@ -754,15 +810,25 @@ int start_combat_scenario(string id)
 		"event_queue" : arrayp(event_queues[id]) ?
 			event_queues[id] + ({}) : ({}),
 		"next_action" : me->query_temp("ai/next_action"),
+		"combat" : mapp(me->query_temp("ai/combat")) ?
+			copy(me->query_temp("ai/combat")) : 0,
 		"dummy" : dummy,
 		"start_event" : 0,
 		"end_event" : 0,
 		"restored" : 0,
-		"detail" : "preparing isolated nonlethal combat",
+		"decision" : "none",
+		"retreat_attempted" : 0,
+		"retreat_attempts" : 0,
+		"retreated" : 0,
+		"trapped" : 0,
+		"incapacitated" : 0,
+		"death_observed" : 0,
+		"respawned" : 0,
+		"detail" : "preparing isolated defense scenario",
 	]);
 	scenarios[id] = scenario;
 	event_queues[id] = ({});
-	me->set_temp("ai/scenario", "combat");
+	me->set_temp("ai/scenario", mode);
 	me->remove_all_enemy(1);
 	me->remove_all_killer();
 	me->delete_temp("pending/fight");
@@ -784,17 +850,60 @@ int start_combat_scenario(string id)
 	}
 
 	dummy->set("ai_test_owner", id);
+	dummy->configure_for_ai(me, mode);
 	me->delete_temp("ai/nearby_fighters");
 	me->set_temp("ai/was_fighting", 0);
-	me->fight_ob(dummy);
-	dummy->fight_ob(me);
+	me->set_temp("ai/next_combat_decision", time());
+	me->set_temp("ai/combat", ([ "state" : "idle", "reason" : "scenario",
+		"since" : time(), "attempts" : 0 ]));
 	scenario["status"] = "running";
-	scenario["detail"] = "combat running";
+	scenario["detail"] = "defense policy running";
 	scenarios[id] = scenario;
 	add_metric(id, "scenarios_started", 1);
-	perceive_world(me, profiles[id]);
-	call_out("stop_combat_scenario", 5, id);
+	if (member_array(mode, ({ "defend", "retreat", "noexit", "blocked" })) != -1)
+	{
+		qi_max = me->query("max_qi") + me->query_gain_qi();
+		if (mode != "defend")
+			me->set("qi", qi_max * 65 / 100);
+		// The test opponent initiates. fight_ob() reciprocally registers the AI
+		// as defending without the policy issuing fight/kill commands.
+		dummy->fight_ob(me);
+		perceive_world(me, profiles[id]);
+		manage_combat(me, profiles[id]);
+		call_out("stop_combat_scenario", mode == "blocked" ? 13 : 7, id);
+	} else if (mode == "unconscious")
+	{
+		me->unconcious();
+		manage_combat(me, profiles[id]);
+		call_out("recover_scenario_condition", 2, id);
+		call_out("stop_combat_scenario", 5, id);
+	} else
+	{
+		if (me->inject_ai_death_state())
+		{
+			scenario = scenarios[id];
+			scenario["death_observed"] = 1;
+			scenarios[id] = scenario;
+		}
+		call_out("stop_combat_scenario", 7, id);
+	}
 	return 1;
+}
+
+void recover_scenario_condition(string id)
+{
+	object me;
+	mapping scenario;
+
+	if (! mapp(scenario = scenarios[id]) ||
+	    scenario["status"] != "running" ||
+	    scenario["type"] != "unconscious" || ! objectp(me = actors[id]))
+		return;
+	if (! living(me))
+		me->revive(1);
+	me->set("qi", scenario["qi"] > 0 ? scenario["qi"] : 1);
+	me->set("jing", scenario["jing"] > 0 ? scenario["jing"] : 1);
+	manage_combat(me, profiles[id]);
 }
 
 int start_supply_activity(string id, int seed_money)
@@ -921,12 +1030,16 @@ void stop_combat_scenario(string id)
 	object dummy;
 	mapping scenario;
 	string restore_room;
+	string mode;
+	string detail;
+	int passed;
 
 	if (! mapp(scenario = scenarios[id]) ||
 	    scenario["status"] != "running")
 		return;
 	me = actors[id];
 	dummy = scenario["dummy"];
+	mode = scenario["type"];
 	scenario["status"] = "stopping";
 	scenarios[id] = scenario;
 	if (objectp(me))
@@ -951,12 +1064,22 @@ void stop_combat_scenario(string id)
 			destruct(dummy);
 		return;
 	}
+	if (! living(me) && ! me->is_ghost())
+		me->revive(1);
+	if (me->is_ghost())
+	{
+		respawn_player(me, profiles[id]);
+		scenario["respawned"] = 1;
+	}
 
 	me->set("qi", scenario["qi"]);
 	me->set("eff_qi", scenario["eff_qi"]);
 	me->set("jing", scenario["jing"]);
 	me->set("eff_jing", scenario["eff_jing"]);
 	me->set("neili", scenario["neili"]);
+	me->set("combat/dietimes", scenario["dietimes"]);
+	me->set("die_protect/last_dead", scenario["death_last"]);
+	me->set("die_protect/duration", scenario["death_duration"]);
 	if (mapp(scenario["activity"]))
 		me->set("ai/state/activity", scenario["activity"]);
 	else
@@ -983,19 +1106,65 @@ void stop_combat_scenario(string id)
 		me->set("ai/state/goal_since", scenario["goal_since"]);
 	if (stringp(scenario["intent"]))
 		me->set("ai/state/intent", scenario["intent"]);
+	if (mapp(scenario["combat"]))
+		me->set_temp("ai/combat", scenario["combat"]);
+	else
+		me->set_temp("ai/combat", ([ "state" : "idle",
+			"reason" : "scenario_restored", "since" : time(),
+			"attempts" : 0 ]));
 	if (objectp(dummy))
 		destruct(dummy);
 	scenario["finished_at"] = time();
-	if (scenario["start_event"] && scenario["end_event"] &&
-	    scenario["restored"])
+	passed = scenario["restored"];
+	if (mode == "defend")
+	{
+		passed = passed && scenario["start_event"] && scenario["end_event"] &&
+			scenario["decision"] == "defend" && ! scenario["retreat_attempted"];
+		detail = "passive attacker observed and bounded defense selected";
+	} else if (mode == "retreat")
+	{
+		passed = passed && scenario["start_event"] && scenario["end_event"] &&
+			scenario["decision"] == "retreat" &&
+			scenario["retreat_attempted"] && scenario["retreated"];
+		detail = "overmatched threat left through a safe exit";
+	} else if (mode == "noexit")
+	{
+		passed = passed && scenario["start_event"] && scenario["end_event"] &&
+			scenario["decision"] == "retreat" && scenario["trapped"] &&
+			! scenario["retreat_attempted"];
+		detail = "no safe exit was handled without an arbitrary move";
+	} else if (mode == "blocked")
+	{
+			passed = passed && scenario["start_event"] && scenario["end_event"] &&
+				scenario["decision"] == "retreat" &&
+				scenario["retreat_attempted"] && scenario["trapped"] &&
+				! scenario["retreated"] &&
+				scenario["retreat_attempts"] == AI_RETREAT_MAX_ATTEMPTS;
+		detail = "blocked retreat stopped after the bounded attempt limit";
+	} else if (mode == "unconscious")
+	{
+		passed = passed && scenario["incapacitated"] && living(me) &&
+			scenario["decision"] == "incapacitated";
+		detail = "unconscious state observed and restored";
+	} else if (mode == "death")
+	{
+		passed = passed && scenario["death_observed"] &&
+			scenario["respawned"] && ! me->is_ghost();
+		detail = "death observed and AI respawned without persistent hostility";
+	} else
+	{
+		passed = 0;
+		detail = "unknown scenario mode";
+	}
+	if (passed)
 	{
 		scenario["status"] = "passed";
-		scenario["detail"] = "combat events observed and player restored";
+		scenario["detail"] = detail;
 		add_metric(id, "scenarios_passed", 1);
 	} else
 	{
 		scenario["status"] = "failed";
-		scenario["detail"] = "missing combat event or restore postcondition";
+		scenario["detail"] = "missing defense decision or restore postcondition: " + detail;
 		add_metric(id, "scenarios_failed", 1);
 	}
 	map_delete(scenario, "dummy");
@@ -1050,7 +1219,9 @@ private void initialize_player(object me, string id, mapping profile)
 	me->set("food", 500);
 	me->set("water", 500);
 	me->set("channels", ({}));
-	me->set("env/wimpy", 35);
+	// AI retreat is selected by the constrained policy below; the stock player
+	// heartbeat otherwise chooses a random exit at env/wimpy.
+	me->set("env/wimpy", 0);
 	me->set("env/combatd", 4);
 	me->set("startroom", profile["home"]);
 
@@ -1319,6 +1490,14 @@ private void initialize_runtime_state(object me, mapping profile)
 		me->set("ai/state/recent_rooms", ({}));
 	if (! mapp(me->query("ai/state/relations")))
 		me->set("ai/state/relations", ([]));
+	me->set("env/wimpy", 0);
+	me->set_temp("ai/combat", ([
+		"state" : "idle",
+		"reason" : "no_active_threat",
+		"since" : time(),
+		"attempts" : 0,
+	]));
+	me->set_temp("ai/next_combat_decision", time());
 	if (me->query("food") > me->max_food_capacity())
 		me->set("food", me->max_food_capacity());
 	if (me->query("water") > me->max_water_capacity())
@@ -1766,6 +1945,304 @@ private int valid_room_file(string file, string zone)
 	    room->query("no_save_location") || room->query("no_login"))
 		return 0;
 	return 1;
+}
+
+private string *combat_safe_exits(object me, mapping profile)
+{
+	mapping exits;
+	string *allowed;
+	string dir;
+	string dest;
+	object room;
+	object ob;
+	int unsafe;
+
+	allowed = ({});
+	if (! objectp(me) || ! objectp(environment(me)) || ! mapp(profile) ||
+	    ! mapp(exits = environment(me)->query("exits")))
+		return allowed;
+	foreach (dir in keys(exits))
+	{
+		dest = exits[dir];
+		if (! stringp(dest))
+			continue;
+		if (me->query_temp("ai/scenario"))
+		{
+			if (dest != AI_TEST_SAFE_ROOM)
+				continue;
+			catch(call_other(dest, "???"));
+		} else if (! valid_room_file(dest, profile["zone"]))
+			continue;
+		room = find_object(dest);
+		if (! objectp(room))
+			continue;
+		unsafe = 0;
+		foreach (ob in all_inventory(room))
+			if (ob != me && living(ob) && ob->is_fighting())
+			{
+				unsafe = 1;
+				break;
+			}
+		if (! unsafe)
+			allowed += ({ dir });
+	}
+	return sort_array(allowed, (: strcmp :));
+}
+
+private mapping build_threat_context(object me, mapping profile)
+{
+	object *enemies;
+	object enemy;
+	object strongest;
+	string *safe_exits;
+	string attacker_id;
+	int enemy_exp;
+	int qi_max;
+	int qi_percent;
+	int retreat_threshold;
+	int my_exp;
+
+	if (! objectp(me) || ! objectp(environment(me)) || ! mapp(profile))
+		return 0;
+	me->clean_up_enemy();
+	enemies = me->query_enemy();
+	if (! arrayp(enemies))
+		enemies = ({});
+	foreach (enemy in enemies)
+		if (objectp(enemy) && living(enemy) &&
+		    environment(enemy) == environment(me) && enemy != me &&
+		    enemy->query("combat_exp") >= enemy_exp)
+		{
+			strongest = enemy;
+			enemy_exp = enemy->query("combat_exp");
+		}
+	if (! objectp(strongest))
+		return 0;
+	attacker_id = strongest->query("id");
+	if (! stringp(attacker_id) || attacker_id == "")
+		attacker_id = base_name(strongest);
+	qi_max = me->query("max_qi") + me->query_gain_qi();
+	qi_percent = qi_max > 0 ? me->query("qi") * 100 / qi_max : 0;
+	retreat_threshold = 62 - profile["courage"] / 2;
+	if (retreat_threshold < 20)
+		retreat_threshold = 20;
+	if (retreat_threshold > 45)
+		retreat_threshold = 45;
+	my_exp = me->query("combat_exp");
+	if (my_exp > 0 && enemy_exp >= my_exp * 2)
+		retreat_threshold += 10;
+	if (retreat_threshold > 60)
+		retreat_threshold = 60;
+	safe_exits = combat_safe_exits(me, profile);
+	return ([
+		"attacker_id" : attacker_id,
+		"attacker_name" : strongest->query("name"),
+		"enemy_exp" : enemy_exp,
+		"enemy_count" : sizeof(enemies),
+		"qi_percent" : qi_percent,
+		"retreat_threshold" : retreat_threshold,
+		"safe_exit_dirs" : safe_exits,
+		"safe_exits" : sizeof(safe_exits),
+		"overmatched" : my_exp > 0 && enemy_exp >= my_exp * 5 / 2,
+	]);
+}
+
+private void set_combat_state(object me, string state, mapping threat,
+	string reason)
+{
+	mapping previous;
+	mapping current;
+	mapping scenario;
+	string id;
+	string old_state;
+	int attempts;
+
+	if (! objectp(me) || ! stringp(state) ||
+	    ! stringp(id = me->query("ai/profile")))
+		return;
+	previous = me->query_temp("ai/combat");
+	old_state = mapp(previous) && stringp(previous["state"]) ?
+		previous["state"] : "idle";
+	attempts = mapp(previous) ? previous["attempts"] : 0;
+	current = mapp(threat) ? copy(threat) : ([]);
+	current["state"] = state;
+	current["reason"] = reason;
+	current["since"] = old_state == state && mapp(previous) ?
+		previous["since"] : time();
+	current["attempts"] = state == "idle" ? 0 : attempts;
+	me->set_temp("ai/combat", current);
+	if (old_state == state)
+		return;
+	if (state == "observe")
+		add_metric(id, "combat_observations", 1);
+	else if (state == "defend")
+		add_metric(id, "combat_defenses", 1);
+	else if (state == "retreat")
+		add_metric(id, "combat_retreat_decisions", 1);
+	else if (state == "trapped")
+		add_metric(id, "combat_trapped", 1);
+	else if (state == "recover")
+		add_metric(id, "combat_recoveries", 1);
+	trace_event(me, sprintf("combat_state=%s reason=%s attacker=%s qi=%d exits=%d",
+		state, reason, current["attacker_id"], current["qi_percent"],
+		current["safe_exits"]));
+	scenario = scenarios[id];
+	if (mapp(scenario) && me->query_temp("ai/scenario"))
+	{
+		if ((! stringp(scenario["decision"]) || scenario["decision"] == "none") &&
+		    member_array(state, ({ "defend", "retreat", "incapacitated",
+		    "dead" })) != -1)
+			scenario["decision"] = state;
+		if (state == "trapped")
+			scenario["trapped"] = 1;
+		if (state == "incapacitated")
+			scenario["incapacitated"] = 1;
+		scenarios[id] = scenario;
+	}
+}
+
+private int attempt_combat_retreat(object me, mapping profile,
+	mapping threat)
+{
+	string *dirs;
+	string dir;
+	string before;
+	string after;
+	string id;
+	int result;
+	int attempts;
+	mapping scenario;
+
+	if (! objectp(me) || ! mapp(profile) || ! mapp(threat) ||
+	    me->is_busy() || ! living(me) ||
+	    ! stringp(id = me->query("ai/profile")))
+		return 0;
+	dirs = combat_safe_exits(me, profile);
+	threat["safe_exit_dirs"] = dirs;
+	threat["safe_exits"] = sizeof(dirs);
+	if (! sizeof(dirs))
+	{
+		set_combat_state(me, "trapped", threat, "no_safe_exit");
+		return 0;
+	}
+	attempts = threat["attempts"] + 1;
+	threat["attempts"] = attempts;
+	me->set_temp("ai/combat", threat);
+	add_metric(id, "combat_retreat_attempts", 1);
+	dir = dirs[(attempts - 1) % sizeof(dirs)];
+	before = base_name(environment(me));
+	add_metric(id, "actions", 1);
+	result = me->force_me("go " + dir);
+	after = objectp(environment(me)) ? base_name(environment(me)) : "";
+	me->set("ai/state/last_action", "go " + dir);
+	me->set("ai/state/last_action_at", time());
+	scenario = scenarios[id];
+	if (mapp(scenario))
+	{
+		scenario["retreat_attempted"] = 1;
+		scenario["retreat_attempts"] = attempts;
+		scenarios[id] = scenario;
+	}
+	if (result && before != after)
+	{
+		add_metric(id, "combat_retreat_successes", 1);
+		remember_room(me);
+		me->clean_up_enemy();
+		set_combat_state(me, "recover", threat, "safe_exit_reached");
+		if (mapp(scenario = scenarios[id]))
+		{
+			scenario["retreated"] = 1;
+			scenarios[id] = scenario;
+		}
+		return 1;
+	}
+	add_metric(id, "combat_retreat_failures", 1);
+	trace_event(me, sprintf("combat_retreat_failed dir=%s attempt=%d",
+		dir, attempts));
+	if (attempts >= AI_RETREAT_MAX_ATTEMPTS)
+		set_combat_state(me, "trapped", threat, "retreat_attempt_limit");
+	return 0;
+}
+
+private void manage_combat(object me, mapping profile)
+{
+	mapping threat;
+	mapping combat;
+	int qi_max;
+	int qi_percent;
+	int should_retreat;
+
+	if (! objectp(me) || ! mapp(profile))
+		return;
+	if (! living(me) && ! me->is_ghost())
+	{
+		set_combat_state(me, "incapacitated", 0, "unconscious");
+		return;
+	}
+	if (me->is_ghost())
+	{
+		set_combat_state(me, "dead", 0, "awaiting_respawn");
+		return;
+	}
+	if (me->is_fighting())
+	{
+		threat = build_threat_context(me, profile);
+		if (! mapp(threat))
+			return;
+		interrupt_activity(me, "self_combat");
+		should_retreat = threat["qi_percent"] <= threat["retreat_threshold"] ||
+			(threat["overmatched"] && threat["qi_percent"] < 75);
+		if (! should_retreat)
+		{
+			set_combat_state(me, "defend", threat, "threat_within_tolerance");
+			set_goal(me, "有限自卫", "只回应当前主动攻击者");
+			return;
+		}
+		combat = me->query_temp("ai/combat");
+		if (mapp(combat) && combat["attacker_id"] == threat["attacker_id"])
+			threat["attempts"] = combat["attempts"];
+		if (! threat["safe_exits"])
+		{
+			if (! mapp(combat) || combat["state"] != "trapped")
+			{
+				set_combat_state(me, "retreat", threat,
+					threat["overmatched"] ? "overmatched" : "low_health");
+				set_combat_state(me, "trapped", threat, "no_safe_exit");
+			}
+			set_goal(me, "守住退路", "没有安全出口，继续有限自卫");
+			return;
+		}
+		if (threat["attempts"] >= AI_RETREAT_MAX_ATTEMPTS)
+		{
+			set_combat_state(me, "trapped", threat, "retreat_attempt_limit");
+			set_goal(me, "守住退路", "撤退已达上限，继续有限自卫");
+			return;
+		}
+		set_combat_state(me, "retreat", threat,
+			threat["overmatched"] ? "overmatched" : "low_health");
+		set_goal(me, "受控撤退", "寻找同区域安全出口");
+		if (me->query_temp("ai/next_combat_decision") <= time())
+		{
+			me->set_temp("ai/next_combat_decision",
+				time() + AI_COMBAT_DECISION_INTERVAL);
+			attempt_combat_retreat(me, profile, me->query_temp("ai/combat"));
+		}
+		return;
+	}
+	combat = me->query_temp("ai/combat");
+	if (! mapp(combat) || combat["state"] == "idle")
+		return;
+	if (combat["state"] == "observe")
+		return;
+	qi_max = me->query("max_qi") + me->query_gain_qi();
+	qi_percent = qi_max > 0 ? me->query("qi") * 100 / qi_max : 0;
+	if (combat["state"] != "recover")
+		set_combat_state(me, "recover", combat, "combat_ended");
+	if (qi_percent >= AI_COMBAT_RECOVERY_PERCENT)
+	{
+		set_combat_state(me, "idle", 0, "recovered");
+		set_goal(me, "战后恢复", "确认安全后恢复日程");
+	}
 }
 
 private string find_route_step(object me, string start, string target, string zone)
@@ -2812,6 +3289,7 @@ private int handle_next_event(object me, mapping profile)
 	mixed *queue;
 	mixed *remaining;
 	mapping event;
+	mapping combat;
 	object source;
 	string id;
 	string type;
@@ -2891,6 +3369,7 @@ private int handle_next_event(object me, mapping profile)
 	}
 	if (type == "nearby_combat_started")
 	{
+		set_combat_state(me, "observe", 0, "nearby_combat");
 		if (profile["courage"] < 60)
 		{
 			set_goal(me, "避开争斗", "远离附近战斗");
@@ -2907,6 +3386,13 @@ private int handle_next_event(object me, mapping profile)
 		set_goal(me, "战后调整", "检查自身状态");
 		if (random(100) < 50)
 			run_action(me, "sigh", 0);
+		return 1;
+	}
+	if (type == "nearby_combat_ended")
+	{
+		combat = me->query_temp("ai/combat");
+		if (mapp(combat) && combat["state"] == "observe")
+			set_combat_state(me, "idle", 0, "nearby_combat_ended");
 		return 1;
 	}
 	if (type == "time_period_changed")
@@ -2928,6 +3414,7 @@ private void think(object me, mapping profile)
 	string target;
 	string period;
 	object human;
+	mapping combat;
 
 	if (! objectp(me))
 		return;
@@ -2968,8 +3455,13 @@ private void think(object me, mapping profile)
 	}
 	if (me->is_fighting())
 	{
-		interrupt_activity(me, "self_combat");
-		set_goal(me, "自卫", "交由玩家战斗系统处理");
+		combat = me->query_temp("ai/combat");
+		if (mapp(combat) && combat["state"] == "retreat")
+			set_goal(me, "受控撤退", "寻找同区域安全出口");
+		else if (mapp(combat) && combat["state"] == "trapped")
+			set_goal(me, "守住退路", "没有安全出口，继续有限自卫");
+		else
+			set_goal(me, "有限自卫", "只回应当前主动攻击者");
 		return;
 	}
 	if (me->is_busy())
@@ -3159,6 +3651,9 @@ string *validate_profiles()
 	foreach (id in keys(profiles))
 	{
 		profile = profiles[id];
+		if (! intp(profile["courage"]) || profile["courage"] < 1 ||
+		    profile["courage"] > 100)
+			issues += ({ id + ": invalid courage" });
 		if (! valid_room_file(profile["home"], profile["zone"]))
 			issues += ({ id + ": invalid home " + profile["home"] });
 		locations = ({});
@@ -3260,6 +3755,10 @@ mapping selftest_player(string id)
 	activities = profile["activities"];
 	result["checks"]["activities"] = arrayp(activities) &&
 		sizeof(activities) >= 3;
+	result["checks"]["finite_defense"] =
+		intp(profile["courage"]) && profile["courage"] >= 1 &&
+		profile["courage"] <= 100 && objectp(actors[id]) &&
+		actors[id]->query("env/wimpy") == 0;
 	patrols = 0;
 	rests = 0;
 	social = 0;
@@ -3366,7 +3865,16 @@ private void process_player(string id)
 		remember_room(me);
 	}
 	if (me->is_ghost())
+	{
+		if (mapp(scenarios[id]) && me->query_temp("ai/scenario"))
+		{
+			scenarios[id]["death_observed"] = 1;
+			manage_combat(me, profile);
+		}
 		respawn_player(me, profile);
+		if (mapp(scenarios[id]) && me->query_temp("ai/scenario"))
+			scenarios[id]["respawned"] = 1;
+	}
 
 	if (! paused && me->query_temp("ai/next_survival") <= time())
 	{
@@ -3374,8 +3882,11 @@ private void process_player(string id)
 		me->set_temp("ai/next_survival",
 			time() + AI_SURVIVAL_INTERVAL);
 	}
-	if (! paused)
+	if (! paused || me->query_temp("ai/scenario"))
+	{
 		perceive_world(me, profile);
+		manage_combat(me, profile);
+	}
 	if (me->query_temp("ai/next_save") <= time())
 	{
 		error = catch(me->save());
