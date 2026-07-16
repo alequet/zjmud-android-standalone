@@ -6,9 +6,11 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.Process
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import kotlin.concurrent.thread
@@ -29,6 +31,11 @@ class MudForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val debuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        if (debuggable && intent?.getBooleanExtra(EXTRA_FAULT_KILL_PROCESS, false) == true) {
+            Process.killProcess(Process.myPid())
+            return START_NOT_STICKY
+        }
         val configPath = intent?.getStringExtra(EXTRA_CONFIG_PATH)
         if (configPath.isNullOrBlank()) {
             stopSelf(startId)
@@ -99,6 +106,7 @@ class MudForegroundService : Service() {
 
     companion object {
         const val EXTRA_CONFIG_PATH = "config_path"
+        const val EXTRA_FAULT_KILL_PROCESS = "fault_kill_process"
         private const val CHANNEL_ID = "mud_server"
         private const val NOTIFICATION_ID = 3000
         private const val DRIVER_STOP_TIMEOUT_MS = 5_000L

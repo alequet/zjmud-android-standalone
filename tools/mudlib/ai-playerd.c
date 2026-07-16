@@ -16,6 +16,8 @@
 #define AI_ROUTE_CACHE_TTL 300
 #define AI_RELATION_DAILY_GAIN 3
 #define AI_ACTIVITY_START_DELAY 20
+#define AI_ACTIVITY_SCHEMA_VERSION 2
+#define AI_ACTIVITY_TIMEOUT 900
 #define AI_TEST_ROOM "/d/standalone/ai_test"
 #define AI_TEST_DUMMY "/clone/npc/ai_test_dummy"
 
@@ -360,6 +362,11 @@ private object load_player(string id, mapping profile);
 private void initialize_player(object me, string id, mapping profile);
 private void initialize_login(object login, string id, mapping profile);
 private void initialize_runtime_state(object me, mapping profile);
+private mapping find_activity_config(mapping profile, string activity_id);
+private void migrate_activity_state(object me, mapping profile);
+private void cancel_activity_state(object me, string reason);
+private void reconcile_social_activities();
+private int checkpoint_activity(object me, mapping activity, string step);
 private void think(object me, mapping profile);
 private void trace_event(object me, string event);
 private void move_locally(object me, mapping profile);
@@ -386,6 +393,7 @@ private int consume_supply(object me, mapping activity, string need);
 private int rest_safely(object me, mapping activity);
 private int run_patrol_activity(object me, mapping profile, mapping activity);
 private int run_social_activity(object me, mapping profile, mapping activity);
+private int valid_room_file(string file, string zone);
 private string contextual_greeting(object me, mapping profile,
 	string player_name, string tier);
 private void mark_scenario_event(string id, string type);
@@ -460,6 +468,11 @@ private mapping metric_bucket(string id)
 			"rests_completed" : 0,
 			"patrol_stops" : 0,
 			"social_meetings" : 0,
+			"activity_migrations" : 0,
+			"activity_cancellations" : 0,
+			"activity_checkpoints" : 0,
+			"activity_checkpoint_failures" : 0,
+			"social_reconciliations" : 0,
 		]);
 		metrics[id] = bucket;
 	}
@@ -565,9 +578,56 @@ mapping query_player_status(string id)
 		"activity_target" : mapp(activity) ? activity["target"] : "",
 		"activity_interrupted" : mapp(activity) &&
 			activity["interrupted"] ? 1 : 0,
+		"activity_schema" : mapp(activity) ? activity["schema_version"] :
+			AI_ACTIVITY_SCHEMA_VERSION,
+		"activity_action" : mapp(activity) ? activity["action"] : "",
+		"activity_partner" : mapp(activity) ? activity["partner"] : "",
+		"activity_synthetic" : mapp(activity) && activity["synthetic"] ? 1 : 0,
 		"last_activity" : me->query("ai/state/last_activity"),
 	]);
 	return status;
+}
+
+mapping query_recovery_status(string id)
+{
+	object me;
+	object room;
+	mapping activity;
+	mapping last_activity;
+	int save_in;
+
+	if (! mapp(profiles[id]) || ! objectp(me = actors[id]))
+		return 0;
+	room = environment(me);
+	activity = me->query("ai/state/activity");
+	last_activity = me->query("ai/state/last_activity");
+	save_in = me->query_temp("ai/next_save") - time();
+	if (save_in < 0)
+		save_in = 0;
+	return ([
+		"id" : id,
+		"schema" : mapp(activity) ? activity["schema_version"] :
+			AI_ACTIVITY_SCHEMA_VERSION,
+		"active" : mapp(activity) ? 1 : 0,
+		"activity" : mapp(activity) ? activity["id"] : "none",
+		"action" : mapp(activity) ? activity["action"] : "none",
+		"step" : mapp(activity) ? activity["step"] : "none",
+		"partner" : mapp(activity) ? activity["partner"] : "none",
+		"synthetic" : mapp(activity) && activity["synthetic"] ? 1 : 0,
+		"room" : objectp(room) ? base_name(room) : "none",
+		"last_outcome" : mapp(last_activity) ?
+			last_activity["outcome"] : "none",
+		"money" : carried_money_value(me),
+		"food_items" : inventory_count(me, "baozi"),
+		"water_items" : inventory_count(me, "jiudai"),
+		"food" : me->query("food"),
+		"water" : me->query("water"),
+		"busy" : me->is_busy() ? 1 : 0,
+		"fighting" : me->is_fighting() ? 1 : 0,
+		"pending" : arrayp(event_queues[id]) ? sizeof(event_queues[id]) : 0,
+		"save_in" : save_in,
+		"scenario" : me->query_temp("ai/scenario") ? 1 : 0,
+	]);
 }
 
 int set_trace(string id, int enabled)
@@ -760,13 +820,12 @@ int start_supply_activity(string id, int seed_money)
 	activity["step"] = "travel";
 	activity["started_at"] = time();
 	activity["interrupted"] = 0;
-	me->set("ai/state/activity", activity);
 	me->set_temp("ai/force_activity", 1);
 	me->set_temp("ai/next_activity", time());
 	me->set_temp("ai/next_action", time() + 1);
 	add_metric(id, "activities_started", 1);
 	trace_event(me, "activity_forced=" + activity["id"]);
-	return 1;
+	return checkpoint_activity(me, activity, "travel");
 }
 
 int start_profile_activity(string id, string activity_id)
@@ -791,13 +850,69 @@ int start_profile_activity(string id, string activity_id)
 	activity["step"] = "travel";
 	activity["started_at"] = time();
 	activity["interrupted"] = 0;
-	me->set("ai/state/activity", activity);
 	me->set_temp("ai/force_activity", 1);
 	me->set_temp("ai/next_activity", time());
 	me->set_temp("ai/next_action", time() + 1);
 	add_metric(id, "activities_started", 1);
 	trace_event(me, "activity_forced=" + activity["id"]);
-	return 1;
+	return checkpoint_activity(me, activity, "travel");
+}
+
+int prepare_recovery_test(string id, string mode)
+{
+	object me;
+	object other;
+	object item;
+	object *items;
+	mapping activity;
+	string other_id;
+	string error;
+	int saved;
+	int i;
+
+	if (! mapp(profiles[id]) || ! objectp(me = actors[id]) ||
+	    ! stringp(mode))
+		return 0;
+	if (mode == "savepoint")
+	{
+		me->set_temp("ai/next_save", time() + 3);
+		return 1;
+	}
+	if (mode == "legacy" || mode == "invalid")
+	{
+		activity = me->query("ai/state/activity");
+		if (! mapp(activity))
+			return 0;
+		map_delete(activity, "schema_version");
+		activity["legacy_untrusted"] = "discard_on_restore";
+		if (mode == "invalid")
+			activity["target"] = AI_TEST_ROOM;
+		me->set("ai/state/activity", activity);
+		me->set_temp("ai/next_action", time() + 60);
+		error = catch(saved = me->save());
+		return ! stringp(error) && saved;
+	}
+	if (mode != "supplies" || me->is_ghost() || me->is_fighting() ||
+	    me->is_busy())
+		return 0;
+	foreach (other_id in keys(profiles))
+	{
+		other = actors[other_id];
+		if (objectp(other) && other != me)
+			other->set_temp("ai/next_activity", time() + 600);
+	}
+	items = all_inventory(me);
+	for (i = sizeof(items) - 1; i >= 0; i--)
+	{
+		item = items[i];
+		if (objectp(item) &&
+		    (item->id("baozi") || item->id("jiudai") ||
+		     stringp(item->query("money_id"))))
+			destruct(item);
+	}
+	me->set("food", 1);
+	me->set("water", 1);
+	return start_supply_activity(id, 1);
 }
 
 void stop_combat_scenario(string id)
@@ -946,6 +1061,242 @@ private void initialize_player(object me, string id, mapping profile)
 	me->set_skill("sword", level);
 }
 
+private mapping find_activity_config(mapping profile, string activity_id)
+{
+	mapping activity;
+	mixed *activities;
+
+	if (! mapp(profile) || ! stringp(activity_id) ||
+	    ! arrayp(activities = profile["activities"]))
+		return 0;
+	foreach (activity in activities)
+		if (mapp(activity) && activity["id"] == activity_id)
+			return activity;
+	return 0;
+}
+
+private int checkpoint_activity(object me, mapping activity, string step)
+{
+	string id;
+	string error;
+	int saved;
+
+	if (! objectp(me) || ! mapp(activity) ||
+	    ! stringp(id = me->query("ai/profile")))
+		return 0;
+	activity["schema_version"] = AI_ACTIVITY_SCHEMA_VERSION;
+	if (stringp(step) && step != "")
+		activity["step"] = step;
+	activity["checkpoint_at"] = time();
+	me->set("ai/state/activity", activity);
+	error = catch(saved = me->save());
+	if ((stringp(error) && error != "") || ! saved)
+	{
+		add_metric(id, "activity_checkpoint_failures", 1);
+		if (stringp(error) && error != "")
+			log_file("ai-player", sprintf("%s checkpoint %s: %s\n",
+				ctime(time()), id, error));
+		return 0;
+	}
+	add_metric(id, "activity_checkpoints", 1);
+	return 1;
+}
+
+private void cancel_activity_state(object me, string reason)
+{
+	mapping activity;
+	mapping cooldowns;
+	string id;
+	string activity_id;
+	string activity_name;
+	string error;
+
+	if (! objectp(me) || ! stringp(id = me->query("ai/profile")) ||
+	    ! mapp(activity = me->query("ai/state/activity")))
+		return;
+	activity_id = stringp(activity["id"]) ? activity["id"] : "unknown";
+	activity_name = stringp(activity["name"]) ? activity["name"] : activity_id;
+	cooldowns = me->query("ai/state/activity_cooldowns");
+	if (! mapp(cooldowns))
+		cooldowns = ([]);
+	cooldowns[activity_id] = time() + 120;
+	me->set("ai/state/activity_cooldowns", cooldowns);
+	me->set("ai/state/last_activity", ([
+		"id" : activity_id,
+		"name" : activity_name,
+		"outcome" : "cancelled_" + reason,
+		"at" : time(),
+	]));
+	me->delete("ai/state/activity");
+	me->delete_temp("ai/force_activity");
+	me->set_temp("ai/next_activity", time() + 120);
+	add_metric(id, "activity_cancellations", 1);
+	trace_event(me, "activity_cancelled=" + activity_id + " reason=" + reason);
+	error = catch(me->save());
+	if (stringp(error) && error != "")
+	{
+		add_metric(id, "activity_checkpoint_failures", 1);
+		log_file("ai-player", sprintf("%s cancel checkpoint %s: %s\n",
+			ctime(time()), id, error));
+	}
+}
+
+private void migrate_activity_state(object me, mapping profile)
+{
+	mapping activity;
+	mapping config;
+	mapping migrated;
+	string id;
+	string action;
+	string step;
+	string target;
+	string partner;
+	string key;
+	string *progress_keys;
+	string *stops;
+	int started_at;
+	int stop_index;
+	int old_schema;
+
+	if (! objectp(me) || ! mapp(profile) ||
+	    ! mapp(activity = me->query("ai/state/activity")) ||
+	    ! stringp(id = me->query("ai/profile")))
+		return;
+	old_schema = activity["schema_version"];
+	if (old_schema > AI_ACTIVITY_SCHEMA_VERSION)
+	{
+		cancel_activity_state(me, "unsupported_schema");
+		return;
+	}
+	started_at = activity["started_at"];
+	if (! intp(started_at) || started_at < 1)
+		started_at = time();
+	if (started_at > time() + 60 || started_at + AI_ACTIVITY_TIMEOUT < time())
+	{
+		cancel_activity_state(me, "timeout");
+		return;
+	}
+	action = activity["action"];
+	target = activity["target"];
+	if (! stringp(target) || ! valid_room_file(target, profile["zone"]))
+	{
+		cancel_activity_state(me, "invalid_target");
+		return;
+	}
+	if (action == "social_wait")
+	{
+		partner = activity["partner"];
+		if (! stringp(partner) || partner == id || ! mapp(profiles[partner]))
+		{
+			cancel_activity_state(me, "invalid_partner");
+			return;
+		}
+		migrated = ([
+			"id" : stringp(activity["id"]) ? activity["id"] :
+				"meet_" + partner,
+			"name" : stringp(activity["name"]) ? activity["name"] :
+				"结伴会面",
+			"target" : target,
+			"action" : "social_wait",
+			"partner" : partner,
+			"line" : stringp(activity["line"]) ? activity["line"] : "",
+			"cooldown" : intp(activity["cooldown"]) &&
+				activity["cooldown"] > 0 ? activity["cooldown"] : 480,
+			"synthetic" : 1,
+		]);
+	} else
+	{
+		config = find_activity_config(profile, activity["id"]);
+		if (! mapp(config))
+		{
+			cancel_activity_state(me, "missing_config");
+			return;
+		}
+		if (! stringp(action) || action != config["action"])
+		{
+			cancel_activity_state(me, "action_changed");
+			return;
+		}
+		if (! valid_room_file(config["target"], profile["zone"]))
+		{
+			cancel_activity_state(me, "invalid_config_target");
+			return;
+		}
+		migrated = copy(config);
+		if (action == "patrol")
+		{
+			stops = config["stops"];
+			stop_index = activity["stop_index"];
+			if (! intp(stop_index) || stop_index < 0)
+				stop_index = 0;
+			if (! arrayp(stops) || ! sizeof(stops) ||
+			    stop_index >= sizeof(stops))
+			{
+				cancel_activity_state(me, "invalid_patrol_progress");
+				return;
+			}
+			foreach (target in stops)
+				if (! valid_room_file(target, profile["zone"]))
+				{
+					cancel_activity_state(me, "invalid_patrol_target");
+					return;
+				}
+			migrated["stop_index"] = stop_index;
+			migrated["target"] = stops[stop_index];
+		}
+	}
+	migrated["schema_version"] = AI_ACTIVITY_SCHEMA_VERSION;
+	migrated["started_at"] = started_at;
+	step = activity["step"];
+	migrated["step"] = stringp(step) && step != "" ? step : "resume";
+	migrated["interrupted"] = activity["interrupted"] ? 1 : 0;
+	if (stringp(activity["interrupt_reason"]))
+		migrated["interrupt_reason"] = activity["interrupt_reason"];
+	progress_keys = ({ "rest_until", "purchased_food", "purchased_water",
+		"consumed_food", "consumed_water" });
+	foreach (key in progress_keys)
+		if (intp(activity[key]))
+			migrated[key] = activity[key];
+	me->set("ai/state/activity", migrated);
+	if (old_schema != AI_ACTIVITY_SCHEMA_VERSION)
+		add_metric(id, "activity_migrations", 1);
+	checkpoint_activity(me, migrated, migrated["step"]);
+}
+
+private void reconcile_social_activities()
+{
+	object me;
+	object partner;
+	mapping activity;
+	mapping partner_activity;
+	string id;
+	string partner_id;
+	string action;
+
+	foreach (id in keys(profiles))
+	{
+		me = actors[id];
+		if (! objectp(me) || ! mapp(activity = me->query("ai/state/activity")))
+			continue;
+		action = activity["action"];
+		if (action != "social" && action != "social_wait")
+			continue;
+		partner_id = activity["partner"];
+		partner = actors[partner_id];
+		partner_activity = objectp(partner) ?
+			partner->query("ai/state/activity") : 0;
+		if (! objectp(partner) || ! mapp(partner_activity) ||
+		    partner_activity["partner"] != id ||
+		    partner_activity["target"] != activity["target"] ||
+		    (partner_activity["action"] != "social" &&
+		     partner_activity["action"] != "social_wait"))
+		{
+			cancel_activity_state(me, "social_mismatch");
+			add_metric(id, "social_reconciliations", 1);
+		}
+	}
+}
+
 private void initialize_runtime_state(object me, mapping profile)
 {
 	int route_index;
@@ -986,6 +1337,7 @@ private void initialize_runtime_state(object me, mapping profile)
 		if (! arrayp(event_queues[id]))
 			event_queues[id] = ({});
 	}
+	migrate_activity_state(me, profile);
 }
 
 private object load_player(string id, mapping profile)
@@ -1099,6 +1451,7 @@ private void load_all_players()
 		else
 			actors[id] = me;
 	}
+	reconcile_social_activities();
 }
 
 void reload_players()
@@ -1638,6 +1991,9 @@ private int purchase_supply(object me, mapping activity, string need)
 	if (after_count <= before_count || after_money >= before_money ||
 	    before_money - after_money != cost)
 		return adapter_failure(me, ADAPTER_POSTCONDITION_FAILED);
+	activity["purchased_" + need] = 1;
+	if (! checkpoint_activity(me, activity, "purchased_" + need))
+		return adapter_failure(me, ADAPTER_POSTCONDITION_FAILED);
 	add_metric(me->query("ai/profile"), "adapter_attempts", 1);
 	add_metric(me->query("ai/profile"), "adapter_successes", 1);
 	trace_event(me, "adapter=purchase need=" + need + " item=" + item_id);
@@ -1668,6 +2024,9 @@ private int consume_supply(object me, mapping activity, string need)
 		return adapter_failure(me, ADAPTER_POSTCONDITION_FAILED);
 	if (need == "water" && ob->query("liquid/remaining") < 1)
 		destruct(ob);
+	activity["consumed_" + need] = 1;
+	if (! checkpoint_activity(me, activity, "consumed_" + need))
+		return adapter_failure(me, ADAPTER_POSTCONDITION_FAILED);
 	add_metric(me->query("ai/profile"), "adapter_attempts", 1);
 	add_metric(me->query("ai/profile"), "adapter_successes", 1);
 	trace_event(me, "adapter=consume need=" + need + " item=" + item_id);
@@ -1719,6 +2078,7 @@ private int run_patrol_activity(object me, mapping profile, mapping activity)
 	string *stops;
 	string target;
 	string current;
+	string patrol_step;
 	int index;
 
 	stops = activity["stops"];
@@ -1729,9 +2089,13 @@ private int run_patrol_activity(object me, mapping profile, mapping activity)
 		index = 0;
 	target = stops[index];
 	current = base_name(environment(me));
-	activity["target"] = target;
-	activity["step"] = sprintf("patrol_%d", index);
-	me->set("ai/state/activity", activity);
+	patrol_step = sprintf("patrol_%d", index);
+	if (activity["target"] != target || activity["step"] != patrol_step)
+	{
+		activity["target"] = target;
+		activity["step"] = patrol_step;
+		checkpoint_activity(me, activity, patrol_step);
+	}
 	if (current != target)
 	{
 		set_goal(me, activity["name"], "巡游前往 " + target);
@@ -1749,7 +2113,7 @@ private int run_patrol_activity(object me, mapping profile, mapping activity)
 	activity["stop_index"] = index;
 	activity["target"] = stops[index];
 	activity["step"] = sprintf("patrol_%d", index);
-	me->set("ai/state/activity", activity);
+	checkpoint_activity(me, activity, activity["step"]);
 	return 1;
 }
 
@@ -1784,8 +2148,9 @@ private int run_social_activity(object me, mapping profile, mapping activity)
 			"started_at" : time(),
 			"step" : "travel",
 			"interrupted" : 0,
+			"synthetic" : 1,
 		]);
-		partner->set("ai/state/activity", partner_activity);
+		checkpoint_activity(partner, partner_activity, "travel");
 		partner->set_temp("ai/next_action", time() + 2);
 		add_metric(partner_id, "activities_started", 1);
 		trace_event(partner, "activity_invited=" + partner_activity["id"]);
@@ -1799,8 +2164,11 @@ private int run_social_activity(object me, mapping profile, mapping activity)
 	if (! objectp(environment(partner)) ||
 	    base_name(environment(partner)) != target)
 	{
-		activity["step"] = "waiting_partner";
-		me->set("ai/state/activity", activity);
+		if (activity["step"] != "waiting_partner")
+		{
+			activity["step"] = "waiting_partner";
+			checkpoint_activity(me, activity, "waiting_partner");
+		}
 		set_goal(me, activity["name"], "在会面点等候 " + partner_id);
 		return 1;
 	}
@@ -2112,8 +2480,7 @@ private void recover_route_failure(object me, mapping profile)
 	if (mapp(activity))
 	{
 		interrupt_activity(me, "route_failed");
-		me->delete("ai/state/activity");
-		me->set_temp("ai/next_activity", time() + 120);
+		cancel_activity_state(me, "route_failed");
 	}
 	if (catch(me->move(profile["home"])) || ! environment(me))
 		return;
@@ -2264,6 +2631,7 @@ private void finish_activity(object me, mapping activity, string outcome)
 {
 	mapping cooldowns;
 	string id;
+	string error;
 
 	if (! objectp(me) || ! mapp(activity) ||
 	    ! stringp(id = me->query("ai/profile")))
@@ -2285,6 +2653,13 @@ private void finish_activity(object me, mapping activity, string outcome)
 	add_metric(id, "activities_completed", 1);
 	trace_event(me, "activity_done=" + activity["id"] +
 		" outcome=" + outcome);
+	error = catch(me->save());
+	if (stringp(error) && error != "")
+	{
+		add_metric(id, "activity_checkpoint_failures", 1);
+		log_file("ai-player", sprintf("%s finish checkpoint %s: %s\n",
+			ctime(time()), id, error));
+	}
 }
 
 private void interrupt_activity(object me, string reason)
@@ -2302,6 +2677,7 @@ private void interrupt_activity(object me, string reason)
 	add_metric(id, "activities_interrupted", 1);
 	trace_event(me, "activity_interrupt=" + activity["id"] +
 		" reason=" + reason);
+	checkpoint_activity(me, activity, activity["step"]);
 }
 
 private int run_activity(object me, mapping profile)
@@ -2332,20 +2708,20 @@ private int run_activity(object me, mapping profile)
 		activity["step"] = "travel";
 		activity["started_at"] = time();
 		activity["interrupted"] = 0;
-		me->set("ai/state/activity", activity);
 		add_metric(me->query("ai/profile"), "activities_started", 1);
 		trace_event(me, "activity_start=" + activity["id"]);
+		checkpoint_activity(me, activity, "travel");
 	}
 	if (activity["interrupted"])
 	{
 		activity["interrupted"] = 0;
 		activity["step"] = "resume";
-		me->set("ai/state/activity", activity);
 		add_metric(me->query("ai/profile"), "activities_resumed", 1);
 		trace_event(me, "activity_resume=" + activity["id"]);
+		checkpoint_activity(me, activity, "resume");
 	}
 	started_at = activity["started_at"];
-	if (started_at + 900 < time())
+	if (started_at + AI_ACTIVITY_TIMEOUT < time())
 	{
 		finish_activity(me, activity, "timeout");
 		return 1;
@@ -2412,7 +2788,7 @@ private int run_activity(object me, mapping profile)
 				run_action(me, "sigh", 0);
 			activity["rest_until"] = time() + activity["duration"];
 			activity["step"] = "resting";
-			me->set("ai/state/activity", activity);
+			checkpoint_activity(me, activity, "resting");
 			return 1;
 		}
 		if (time() < activity["rest_until"])

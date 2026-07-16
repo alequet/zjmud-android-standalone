@@ -284,12 +284,19 @@ Web 客户端不再覆盖 `document.oncontextmenu`，Android `WebView` 保持长
   选择内容。活动执行器支持按有序站点完成多点巡游、在安全目标房间分阶段休息并校验恢复
   上限、到配置商人处真实购买/消费，以及两个空闲 AI 在同区域安全会面点碰面交谈。结伴
   不使用通用 `team/follow`，不会跨区域传送或覆盖伙伴正在执行的活动。
+- v1.7 将活动存档固定为 schema v2。恢复时从当前 profile 重建动作、目标、商人、费用和
+  站点，只迁移开始时间、步骤、中断、巡游索引、休息截止时间及购物检查点；删除的活动、
+  动作变化、非法目标、超时和未知新 schema 都写入 `cancelled_*` 结果并退避。合成的
+  `social_wait` 只允许合法角色、同区域安全目标，五名角色加载后还会对账双方 partner 与
+  target，不一致时解除。活动开始/完成、巡游推进、休息开始、结伴邀请、购买和消费后立即
+  原子保存；购物恢复依靠已保存的货币与物品后置状态保持幂等。
 - 每 300 秒保存一次，守护移除和 MUD 关闭时保存全部角色。管理员可用
   `aiplayer status|pause|resume|reload|save` 控制全局；`metrics [id]` 查看动作、错误、BFS 节点、
   缓存、事件和活动计数，`events <id>` 查看待处理队列，`validate` 校验日程与路径，
   `selftest [id]` 做非破坏性队列/关系/缓存/活动自检，并可用
   `inspect/trace/home/reset <id>` 查看或恢复单个角色。`scenario combat <id>` 运行隔离战斗回归，
-  `scenario status <id>` 查看结果，`activity supplies <id>` 强制补给活动；仅测试时使用
+  `scenario status <id>` 查看结果，`activity supplies <id>` 强制补给活动；`recovery <id>`
+  提供 schema、步骤、伙伴、房间、资源和保存倒计时的机器可读快照。仅测试时使用
   `activity supplies <id> seed` 注入 30 银验证真实购买路径。`metrics` 还显示适配器和场景计数。
   `stability` 提供机器可读的驱动对象数、AI 加载数、错误、动作失败、路径失败、重定位、
   复活、事件积压和动作计数，只用于自动稳定性采样。

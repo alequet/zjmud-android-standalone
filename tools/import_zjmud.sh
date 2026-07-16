@@ -200,7 +200,17 @@ if [[ "$(LC_ALL=C rg -F -c 'int     is_ai_player()' \
         "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "2" ||
       "$(LC_ALL=C rg -F -c 'int start_profile_activity' \
         "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c '#define AI_ACTIVITY_SCHEMA_VERSION 2' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'mapping query_recovery_status' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'private void reconcile_social_activities' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "2" ||
+      "$(LC_ALL=C rg -F -c 'private int checkpoint_activity' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "2" ||
       "$(LC_ALL=C rg -F -c 'behavior patrol_stops=%d rests=%d social_meetings=%d' \
+        "$WORK_ROOT/payload/cmds/adm/aiplayer.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'AI_RECOVERY id=%s schema=%d active=%d' \
         "$WORK_ROOT/payload/cmds/adm/aiplayer.c")" != "1" ||
       "$(LC_ALL=C rg -F -c 'status|pause|resume|reload|save' \
         "$WORK_ROOT/payload/cmds/adm/aiplayer.c")" != "2" ]]; then

@@ -120,6 +120,7 @@ private int show_metrics(string value)
 			"  events queued=%d handled=%d dropped=%d pending=%d\n"
 			"  activities started=%d completed=%d interrupted=%d resumed=%d\n"
 			"  behavior patrol_stops=%d rests=%d social_meetings=%d\n"
+			"  recovery migrations=%d cancellations=%d checkpoints=%d failed=%d reconciliations=%d\n"
 			"  route failures=%d relocations=%d\n"
 			"  adapters attempts=%d success=%d precondition=%d command=%d postcondition=%d\n"
 			"  scenarios started=%d passed=%d failed=%d\n",
@@ -134,6 +135,10 @@ private int show_metrics(string value)
 			data["activities_interrupted"], data["activities_resumed"],
 			data["patrol_stops"], data["rests_completed"],
 			data["social_meetings"],
+			data["activity_migrations"], data["activity_cancellations"],
+			data["activity_checkpoints"],
+			data["activity_checkpoint_failures"],
+			data["social_reconciliations"],
 			data["route_failures"], data["relocations"],
 			data["adapter_attempts"], data["adapter_successes"],
 			data["adapter_precondition_failures"],
@@ -143,6 +148,40 @@ private int show_metrics(string value)
 			data["scenarios_failed"]);
 	}
 	write(msg);
+	return 1;
+}
+
+private int show_recovery(string value)
+{
+	mapping status;
+	string id;
+	string activity;
+	string action;
+	string step;
+	string partner;
+	string room;
+	string outcome;
+
+	id = resolve_id(value);
+	if (! stringp(id) || ! mapp(status = AI_PLAYER_D->query_recovery_status(id)))
+		return notify_fail("没有这个 AI 玩家，或角色尚未加载。\n");
+	activity = stringp(status["activity"]) ? status["activity"] : "none";
+	action = stringp(status["action"]) ? status["action"] : "none";
+	step = stringp(status["step"]) ? status["step"] : "none";
+	partner = stringp(status["partner"]) ? status["partner"] : "none";
+	room = stringp(status["room"]) ? status["room"] : "none";
+	outcome = stringp(status["last_outcome"]) ?
+		status["last_outcome"] : "none";
+	write(sprintf(
+		"AI_RECOVERY id=%s schema=%d active=%d activity=%s action=%s step=%s "
+		"partner=%s synthetic=%d room=%s last_outcome=%s money=%d "
+		"food_items=%d water_items=%d food=%d water=%d busy=%d fighting=%d "
+		"pending=%d save_in=%d scenario=%d\n",
+		id, status["schema"], status["active"], activity, action, step,
+		partner, status["synthetic"], room, outcome, status["money"],
+		status["food_items"], status["water_items"], status["food"],
+		status["water"], status["busy"], status["fighting"],
+		status["pending"], status["save_in"], status["scenario"]));
 	return 1;
 }
 
@@ -313,6 +352,18 @@ int main(object me, string arg)
 		return show_metrics(value);
 	if (sscanf(arg, "events %s", value) == 1)
 		return show_events(value);
+	if (sscanf(arg, "recovery prepare %s %s", value, mode) == 2)
+	{
+		id = resolve_id(value);
+		if (! stringp(id) || (mode != "supplies" && mode != "savepoint" &&
+		    mode != "legacy" && mode != "invalid") ||
+		    ! AI_PLAYER_D->prepare_recovery_test(id, mode))
+			return notify_fail("无法准备恢复测试：模式必须是 supplies、savepoint、legacy 或 invalid，且角色状态必须匹配。\n");
+		write(id + " 已准备恢复测试 " + mode + "。\n");
+		return 1;
+	}
+	if (sscanf(arg, "recovery %s", value) == 1)
+		return show_recovery(value);
 	if (arg == "validate")
 		return show_validation();
 	if (arg == "selftest")
@@ -383,11 +434,11 @@ int main(object me, string arg)
 		write(id + " 的行为状态、生命状态和位置已复位。\n");
 		return 1;
 	}
-	return notify_fail("用法：aiplayer [status|pause|resume|reload|save|metrics [id]|events <id>|validate|selftest [id]|stability|scenario combat <id>|scenario status <id>|activity supplies <id>|activity supplies <id> seed|activity run <id> <activity>|inspect <id>|trace <id> <on|off>|home <id>|reset <id>]\n");
+	return notify_fail("用法：aiplayer [status|pause|resume|reload|save|metrics [id]|events <id>|recovery <id>|recovery prepare <id> <supplies|savepoint|legacy|invalid>|validate|selftest [id]|stability|scenario combat <id>|scenario status <id>|activity supplies <id>|activity supplies <id> seed|activity run <id> <activity>|inspect <id>|trace <id> <on|off>|home <id>|reset <id>]\n");
 }
 
 int help(object me)
 {
-	write("用法：aiplayer [status|pause|resume|reload|save|metrics [id]|events <id>|validate|selftest [id]|stability|scenario combat <id>|scenario status <id>|activity supplies <id>|activity supplies <id> seed|activity run <id> <activity>|inspect <id>|trace <id> <on|off>|home <id>|reset <id>]\n");
+	write("用法：aiplayer [status|pause|resume|reload|save|metrics [id]|events <id>|recovery <id>|recovery prepare <id> <supplies|savepoint|legacy|invalid>|validate|selftest [id]|stability|scenario combat <id>|scenario status <id>|activity supplies <id>|activity supplies <id> seed|activity run <id> <activity>|inspect <id>|trace <id> <on|off>|home <id>|reset <id>]\n");
 	return 1;
 }
