@@ -1,0 +1,116 @@
+--- a/d/tulong/yitian/npc/aer.c
++++ b/d/tulong/yitian/npc/aer.c
+@@ -143,6 +143,7 @@
+ 		query("anti")->delete_temp("bi");
+ 		query("anti")->delete_temp("win_asan");
+ 		destruct(this_object());
++		return;
+ 	}
+ ::die();
+ }
+--- a/d/tulong/yitian/npc/asan.c
++++ b/d/tulong/yitian/npc/asan.c
+@@ -144,6 +144,7 @@
+ 		query("anti")->delete_temp("bi");
+ 		query("anti")->delete_temp("win_he");
+ 		destruct(this_object());
++		return;
+ 	}
+ ::die();
+ }
+--- a/kungfu/skill/qiankun-danuoyi.c
++++ b/kungfu/skill/qiankun-danuoyi.c
+@@ -109,7 +109,7 @@
+ 		msg = parry_msg[random(sizeof(parry_msg))];
+ 		msg = replace_string(msg, "$N", "$N" HIG);
+ 		msg = replace_string(msg, "$n", "$n" HIG);
+-		msg = HIG + msg + NOR;
++		msg = HIG + replace_string(msg, "\n", NOR "\n");
+ 		result = ([ "damage": -damage,
+ 			    "msg"   : msg ]);
+ 		return result;
+@@ -118,7 +118,7 @@
+ 		msg = pfail_msg[random(sizeof(pfail_msg))];
+ 		msg = replace_string(msg, "$N", "$N" HIY);
+ 		msg = replace_string(msg, "$n", "$n" HIY);
+-		msg = HIY + msg + NOR;
++		msg = HIY + replace_string(msg, "\n", NOR "\n");
+ 		COMBAT_D->set_bhinfo(msg);
+ 	      }
+ 	} else {
+@@ -127,7 +127,7 @@
+ 		msg = parry_msg[random(sizeof(parry_msg))];
+ 		msg = replace_string(msg, "$N", "$N" HIG);
+ 		msg = replace_string(msg, "$n", "$n" HIG);
+-		msg = HIG + msg + NOR;
++		msg = HIG + replace_string(msg, "\n", NOR "\n");
+ 		result = ([ "damage": -damage,
+ 			    "msg"   : msg ]);
+ 		return result;
+@@ -137,7 +137,7 @@
+ 		msg = pfail_msg[random(sizeof(pfail_msg))];
+ 		msg = replace_string(msg, "$N", "$N" HIY);
+ 		msg = replace_string(msg, "$n", "$n" HIY);
+-		msg = HIY + msg + NOR;
++		msg = HIY + replace_string(msg, "\n", NOR "\n");
+		COMBAT_D->set_bhinfo(msg);
+	    }
+      }
+--- a/clone/user/comb_ob.c
++++ b/clone/user/comb_ob.c
+@@ -48,7 +48,8 @@
+ {
+ 	apteam -= ({ ob });
+ 	fighter -= ({ ob });
+-	ob->delete_temp("fight_team");
++	if (objectp(ob))
++		ob->delete_temp("fight_team");
+ }
+ 
+ void add_dpteam(object ob)
+@@ -62,7 +63,8 @@
+ {
+ 	dpteam -= ({ ob });
+ 	fighter -= ({ ob });
+-	ob->delete_temp("fight_team");
++	if (objectp(ob))
++		ob->delete_temp("fight_team");
+ }
+ 
+ void add_fighter(object ob)
+@@ -86,6 +88,7 @@
+ 		inv->move(environment(ob));
+ 		inv->delete_temp("fight_team");
+ 		destruct(ob);
++		return;
+ 	}
+ 	w = ob->query("waiting");
+ 	first = fighter[0];
+--- a/cmds/arch/register.c
++++ b/cmds/arch/register.c
+@@ -28,7 +28,7 @@
+ 	body = LOGIN_D->make_body(ob);
+ 	destruct(ob);
+ 	if (! body)
+-		destruct(ob);
++		return 0;
+ 	else
+ 	if (! body->restore())
+ 	{
+--- a/adm/daemons/logind.c
++++ b/adm/daemons/logind.c
+@@ -223 +223,2 @@
+-	destruct(user);
++	if (objectp(user))
++		destruct(user);
+--- a/adm/npc/wizard.c
++++ b/adm/npc/wizard.c
+@@ -130,7 +130,7 @@
+ 		return;
+ 
+ 	me->set("zjvip/vipgift/jiuyang_book_repaired", 1);
+-	tell_object(me, HIG "VIP Jiuyang reward book restored.\n" NOR);
++	tell_object(me, HIG "VIP Jiuyang reward book restored." NOR "\n");
+ 	log_ufile(me, "viplvgift", "Restored missing Jiuyang reward book.\n");
+ }
+ 

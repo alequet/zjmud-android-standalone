@@ -1,0 +1,179 @@
+--- a/clone/user/user.c
++++ b/clone/user/user.c
+@@ -44,10 +44,58 @@
+ string  query_prison()	  { return prison; }
+ int     query_time_to_leave()   { return time_to_leave; }
+ int     is_in_prison()	  { return stringp(prison); }
+-int     is_net_dead()	   { return net_dead || ! interactive(this_object()); }
++int     is_ai_player()	   { return query("ai_player") ? 1 : 0; }
++int     is_net_dead()	   { return ! is_ai_player() && (net_dead || ! interactive(this_object())); }
+ 
+ varargs string calc_sec_id(int raw);
++
++int prepare_ai_uid_export()
++{
++    if (! is_ai_player() ||
++        base_name(previous_object()) != "/adm/daemons/logind")
++        return 0;
++
++    seteuid(0);
++    return ! stringp(geteuid(this_object()));
++}
++
++int activate_ai_uid()
++{
++    if (! is_ai_player() ||
++        base_name(previous_object()) != "/adm/daemons/logind")
++        return 0;
++
++    seteuid(getuid());
++    return geteuid(this_object()) == getuid(this_object());
++}
++
++int prepare_ai_runtime()
++{
++    if (! is_ai_player() ||
++        base_name(previous_object()) != "/adm/daemons/ai_playerd")
++        return 0;
++
++    seteuid(getuid());
++    return stringp(geteuid(this_object()));
++}
++
++int want_receive_msg()
++{
++    return is_ai_player();
++}
++
++void relay_message(string msgclass, string msg)
++{
++    if (is_ai_player())
++        "/adm/daemons/ai_playerd"->receive_message(this_object(), msgclass, msg);
++}
+ 
++void relay_say(object speaker, string msg)
++{
++    if (is_ai_player())
++        "/adm/daemons/ai_playerd"->hear_say(this_object(), speaker, msg);
++}
++
+ #define MAX_COMMAND_ONE_SECTION	 30
+ #define MAX_SAY_ONE_SECTION	     4
+ #define BAN_SAY_PERIOD		  60
+--- a/clone/user/login.c
++++ b/clone/user/login.c
+@@ -52,6 +52,34 @@ void time_out()
+ 	destruct(this_object());
+ }
+ 
++int prepare_ai_login()
++{
++	string id;
++
++	id = query("id");
++	if (base_name(previous_object()) != "/adm/daemons/ai_playerd" ||
++	    ! stringp(id) || strsrch(id, "ai_") != 0)
++		return 0;
++
++	set_temp("ai_login", 1);
++	seteuid(0);
++	return ! stringp(geteuid(this_object()));
++}
++
++int activate_ai_login()
++{
++	string id;
++
++	id = query("id");
++	if (! query_temp("ai_login") ||
++	    base_name(previous_object()) != "/adm/daemons/logind" ||
++	    ! stringp(id) || strsrch(id, "ai_") != 0 || getuid() != id)
++		return 0;
++
++	seteuid(getuid());
++	return geteuid(this_object()) == getuid(this_object());
++}
++
+ // This is used by F_SAVE to determinethe file name to save our data.
+ string query_save_file()
+ {
+--- a/adm/daemons/logind.c
++++ b/adm/daemons/logind.c
+@@ -132,5 +132,12 @@
+ */
+ 	myinfo[0] = lower_case(myinfo[0]);
+ 
++	if (strsrch(myinfo[0], "ai_") == 0)
++	{
++		write(ZJTMPSAY"This account is managed by the standalone AI system.\n");
++		input_to("get_user", ob);
++		return;
++	}
++
+ /*
+	if (1) {
+@@ -289,5 +296,6 @@ object make_body(object ob)
+ 	object user;
+ 	int n;
++	int ai_login;
+ 
+ 	seteuid(getuid());
+ 	user = new(USER_OB);
+@@ -297,12 +305,43 @@ object make_body(object ob)
+ 		write(err+"\n");
+ 		return 0;
+ 	}
++	ai_login = ob->query_temp("ai_login") ? 1 : 0;
++	if (ai_login)
++	{
++		user->set("ai_player", 1);
++		if (! user->prepare_ai_uid_export())
++		{
++			destruct(user);
++			return 0;
++		}
++	}
+	seteuid(ob->query("id"));
+-	export_uid(user);
+-	export_uid(ob);
++	if (ai_login)
++	{
++		if (! export_uid(user) || ! export_uid(ob))
++		{
++			seteuid(getuid());
++			log_file("ai-player", "Unable to export AI account uid for " +
++				ob->query("id") + ".\n");
++			destruct(user);
++			return 0;
++		}
++	}
++	else
++	{
++		export_uid(user);
++		export_uid(ob);
++	}
+ 	seteuid(getuid());
+ 	user->set("id", ob->query("id"));
+ 	user->set("surname", ob->query("surname"));
+ 	user->set("purename", ob->query("purename"));
+ 	user->set_name( 0, ({ ob->query("id")}) );
++	if (ai_login && (! user->activate_ai_uid() || ! ob->activate_ai_login()))
++	{
++		log_file("ai-player", "Unable to activate AI account uid for " +
++			ob->query("id") + ".\n");
++		destruct(user);
++		return 0;
++	}
+ 	return user;
+--- a/cmds/std/ask.c
++++ b/cmds/std/ask.c
+@@ -87,6 +87,9 @@ int main(object me, string arg)
+ 
+ 	if (playerp(ob) || ob->is_chatter())
+ 	{
++		if (playerp(ob) && ob->query("ai_player"))
++			"/adm/daemons/ai_playerd"->hear_ask(ob, me, topic);
++
+ 		ob->set_temp("ask_you", me->query("id"));
+ 		return 1;
+ 	}

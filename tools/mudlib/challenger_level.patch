@@ -1,0 +1,11 @@
+--- a/adm/daemons/boss/challenge.c
++++ b/adm/daemons/boss/challenge.c
+@@ -125,7 +125,7 @@
+ 		tmp = to_int(pow(to_float(u[i]->query("combat_exp")*10),0.33333333));
+ 		if(lv<tmp) lv = tmp;
+ 	}
+-	lv = 120;
++	lv = 220;
+ 	ob->set_lvl(lv);
+ 	where = where_list[random(sizeof(where_list))];
+ 	ob->move(where);

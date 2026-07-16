@@ -1,0 +1,64 @@
+--- a/cmds/usr/fly.c
++++ b/cmds/usr/fly.c
+@@ -180,6 +180,6 @@
+ 		if (! mapp(quest) || quest["type"] != "kill")
+ 			quest = me->query("bquest");
+-		if (! mapp(quest) || quest["type"] != "kill")
++		if (! mapp(quest) || quest["type"] != "kill" || ! stringp(quest["id"]))
+ 			return notify_fail("No active kill target.\n");
+ 
+ 		target = find_living(quest["id"]);
+--- a/cmds/imm/goto.c
++++ b/cmds/imm/goto.c
+@@ -8,6 +8,7 @@
+ {
+ 	int goto_inventory = 0;
+-	object obj;
++	object obj, target;
++	mapping quest;
+ 	object env;
+ 	string msg;
+ 
+@@ -23,3 +24,19 @@
++	if (arg == "quest")
++	{
++		quest = me->query("quest");
++		if (! mapp(quest) || quest["type"] != "kill")
++			quest = me->query("bquest");
++		if (! mapp(quest) || quest["type"] != "kill" || ! stringp(quest["id"]))
++			return notify_fail("No active kill target.\n");
++
++		target = find_living(quest["id"]);
++		if (! objectp(target) || ! objectp(environment(target)))
++			return notify_fail("The quest target cannot be located.\n");
++
++		arg = quest["id"];
++		goto_inventory = 0;
++	}
++
+ 	obj = find_player(arg);
+ 	if (! obj) obj = MESSAGE_D->find_user(arg);
+ 	if (! obj) obj = find_living(arg);
+--- a/cmds/std/kill.c
++++ b/cmds/std/kill.c
+@@ -7,6 +7,7 @@
+ int main(object me, string arg)
+ {
+ 	object obj;
++	mapping quest;
+ 	string *killer, callname;
+ 
+ 	if (me->is_chatter())
+@@ -18,1 +19,12 @@
++	if (arg == "quest")
++	{
++		quest = me->query("quest");
++		if (! mapp(quest) || quest["type"] != "kill")
++			quest = me->query("bquest");
++		if (! mapp(quest) || quest["type"] != "kill" || ! stringp(quest["id"]))
++			return notify_fail("No active kill target.\n");
++
++		arg = quest["id"];
++	}
++
+ 	if (! objectp(obj = present(arg, environment(me))))

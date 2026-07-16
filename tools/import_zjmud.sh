@@ -63,20 +63,41 @@ rsync -a \
   --exclude='d/beijing/liandan_lin - 副本.c' \
   "$SOURCE_ROOT/" "$WORK_ROOT/payload/"
 
-perl -ni -e 'print unless m{^/adm/daemons/(messaged|payd)\s*$}' "$WORK_ROOT/payload/adm/etc/preload"
+perl -ni -e 'print unless m{^/adm/daemons/(messaged|payd|securityd)\s*$}' \
+  "$WORK_ROOT/payload/adm/etc/preload"
+perl -0pi -e 's{\A}{/adm/daemons/securityd\n}' "$WORK_ROOT/payload/adm/etc/preload"
 
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/remove_anticheat.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/singleplayer_boosts.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/shaolin_unarmed_rewards.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/quest_fly.patch"
+patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/quest_commands.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/hide_room_paths.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/static_admins.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/full_character_save.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/challenger_runtime.patch"
+patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/challenger_level.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/wizard_reward_repair.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/cultivation_success_boost.patch"
+patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/runtime_error_fixes.patch"
+patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/ai_players.patch"
 rm -f "$WORK_ROOT/payload/inherit/char/challenger.c.orig"
 install -m 0644 "$REPO_ROOT/tools/mudlib/fullsave.c" "$WORK_ROOT/payload/feature/fullsave.c"
+iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/ai-playerd.c" \
+  > "$WORK_ROOT/payload/adm/daemons/ai_playerd.c"
+iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/aiplayer.c" \
+  > "$WORK_ROOT/payload/cmds/adm/aiplayer.c"
+chmod 0644 \
+  "$WORK_ROOT/payload/adm/daemons/ai_playerd.c" \
+  "$WORK_ROOT/payload/cmds/adm/aiplayer.c"
+mkdir -p "$WORK_ROOT/payload/d/standalone"
+iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/ai-test-room.c" \
+  > "$WORK_ROOT/payload/d/standalone/ai_test.c"
+iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/ai-test-dummy.c" \
+  > "$WORK_ROOT/payload/clone/npc/ai_test_dummy.c"
+chmod 0644 "$WORK_ROOT/payload/d/standalone/ai_test.c" \
+  "$WORK_ROOT/payload/clone/npc/ai_test_dummy.c"
+printf '\n%s\n' '/adm/daemons/ai_playerd' >> "$WORK_ROOT/payload/adm/etc/preload"
 install -m 0644 "$REPO_ROOT/tools/mudlib/offline-gchannel.c" \
   "$WORK_ROOT/payload/adm/daemons/network/services/gchannel.c"
 install -m 0644 "$REPO_ROOT/tools/mudlib/offline-messaged.c" \
@@ -109,9 +130,154 @@ if [[ "$(LC_ALL=C rg -c 'inherit "/feature/fullsave";' "$WORK_ROOT/payload/clone
   exit 1
 fi
 
+if [[ "$(LC_ALL=C rg -F -c 'int     is_ai_player()' \
+        "$WORK_ROOT/payload/clone/user/user.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c '"/adm/daemons/ai_playerd"->hear_say' \
+        "$WORK_ROOT/payload/clone/user/user.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'int prepare_ai_runtime()' \
+        "$WORK_ROOT/payload/clone/user/user.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'int prepare_ai_uid_export()' \
+        "$WORK_ROOT/payload/clone/user/user.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'int prepare_ai_login()' \
+        "$WORK_ROOT/payload/clone/user/login.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'login->prepare_ai_login()' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'user->prepare_ai_uid_export()' \
+        "$WORK_ROOT/payload/adm/daemons/logind.c")" != "1" ||
+      "$(LC_ALL=C rg -U -c 'if \(ai_login\)\n\s+\{\n\s+if \(! export_uid\(user\) \|\| ! export_uid\(ob\)\)' \
+        "$WORK_ROOT/payload/adm/daemons/logind.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'save_error = catch(saved = login->save())' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'ob->activate_ai_login()' \
+        "$WORK_ROOT/payload/adm/daemons/logind.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'catch(NAME_D->map_name(me->query("name"), id));' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'strsrch(myinfo[0], "ai_") == 0' \
+        "$WORK_ROOT/payload/adm/daemons/logind.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c -- '->hear_ask(ob, me, topic);' \
+        "$WORK_ROOT/payload/cmds/std/ask.c")" != "1" ||
+      "$(LC_ALL=C rg -c '^/adm/daemons/ai_playerd$' \
+        "$WORK_ROOT/payload/adm/etc/preload")" != "1" ||
+      "$(LC_ALL=C rg -c '^/adm/daemons/securityd$' \
+        "$WORK_ROOT/payload/adm/etc/preload")" != "1" ||
+      "$(LC_ALL=C sed -n '1p' "$WORK_ROOT/payload/adm/etc/preload")" != \
+        "/adm/daemons/securityd" ||
+      "$(LC_ALL=C rg -F -c 'Persistent autonomous player actors' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'private string find_route_step' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "2" ||
+      "$(LC_ALL=C rg -F -c 'mapping query_player_status' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'mapping query_metrics' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'void hear_ask' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'string *validate_profiles' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'mapping selftest_player' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'case "eat":' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'case "buy":' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'int start_combat_scenario' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'mapping query_scenario_status' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'private void clear_scenario_events' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "2" ||
+      "$(LC_ALL=C rg -F -c 'int start_supply_activity' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'adapter_postcondition_failures' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "2" ||
+      "$(LC_ALL=C rg -F -c 'private int run_patrol_activity' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "2" ||
+      "$(LC_ALL=C rg -F -c 'private int run_social_activity' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "2" ||
+      "$(LC_ALL=C rg -F -c 'private int rest_safely' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "2" ||
+      "$(LC_ALL=C rg -F -c 'string contextual_greeting' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "2" ||
+      "$(LC_ALL=C rg -F -c 'int start_profile_activity' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'behavior patrol_stops=%d rests=%d social_meetings=%d' \
+        "$WORK_ROOT/payload/cmds/adm/aiplayer.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'status|pause|resume|reload|save' \
+        "$WORK_ROOT/payload/cmds/adm/aiplayer.c")" != "2" ]]; then
+  echo "AI player runtime validation failed." >&2
+  exit 1
+fi
+
+if [[ "$(LC_ALL=C rg -F -c 'AI_STABILITY objects=%d players=%d profiles=%d paused=%d' \
+        "$WORK_ROOT/payload/cmds/adm/aiplayer.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'AI_STABILITY_PLAYER id=%s loaded=%d errors=%d action_failures=%d' \
+        "$WORK_ROOT/payload/cmds/adm/aiplayer.c")" != "1" ]]; then
+  echo "AI stability diagnostics validation failed." >&2
+  exit 1
+fi
+
+if [[ ! -f "$WORK_ROOT/payload/d/standalone/ai_test.c" ||
+      ! -f "$WORK_ROOT/payload/clone/npc/ai_test_dummy.c" ||
+      "$(LC_ALL=C rg -F -c 'set("ai_test_room", 1);' \
+        "$WORK_ROOT/payload/d/standalone/ai_test.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'set("ai_test_dummy", 1);' \
+        "$WORK_ROOT/payload/clone/npc/ai_test_dummy.c")" != "1" ]]; then
+  echo "AI isolated scenario assets validation failed." >&2
+  exit 1
+fi
+
+ai_profile_count="$(LC_ALL=C rg -o '"ai_[a-z]+" : \(\[' \
+  "$WORK_ROOT/payload/adm/daemons/ai_playerd.c" | wc -l | tr -d ' ')"
+if [[ "$ai_profile_count" != "5" ]]; then
+  echo "Unexpected AI player profile count: $ai_profile_count" >&2
+  exit 1
+fi
+
+ai_behavior_profile_count="$(LC_ALL=C rg -F -c '"talk_chance" :' \
+  "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")"
+ai_schedule_profile_count="$(LC_ALL=C rg -F -c '"schedule" : ([' \
+  "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")"
+ai_activity_profile_count="$(LC_ALL=C rg -F -c '"activities" : ({' \
+  "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")"
+if [[ "$ai_behavior_profile_count" != "5" ||
+      "$ai_schedule_profile_count" != "5" ||
+      "$ai_activity_profile_count" != "5" ]] ||
+   ! LC_ALL=C rg -F -q 'inspect <id>' \
+     "$WORK_ROOT/payload/cmds/adm/aiplayer.c" ||
+   ! LC_ALL=C rg -F -q 'metrics [id]' \
+     "$WORK_ROOT/payload/cmds/adm/aiplayer.c" ||
+   ! LC_ALL=C rg -F -q 'events <id>' \
+     "$WORK_ROOT/payload/cmds/adm/aiplayer.c" ||
+   ! LC_ALL=C rg -F -q 'selftest [id]' \
+     "$WORK_ROOT/payload/cmds/adm/aiplayer.c" ||
+   ! LC_ALL=C rg -F -q 'activity supplies <id>' \
+     "$WORK_ROOT/payload/cmds/adm/aiplayer.c"; then
+  echo "AI player behavior profile validation failed." >&2
+  exit 1
+fi
+
+for ai_route in \
+  d/city/guangchang d/city/dongmen d/city/kedian d/city/zuixianlou d/city/xiaohuayuan \
+  d/city/yaopu_neishi d/wudang/jiejianyan d/wudang/slxl3 \
+  d/wudang/guangchang d/wudang/zixiaogate d/shaolin/shanmen \
+  d/shaolin/shijie8 d/shaolin/guangchang1 d/shaolin/shijie10 \
+  d/hangzhou/road10 d/hangzhou/kedian d/hangzhou/baoshishan \
+  d/hangzhou/lingyinsi; do
+  if [[ ! -f "$WORK_ROOT/payload/$ai_route.c" ]]; then
+    echo "Missing AI player route room: $ai_route" >&2
+    exit 1
+  fi
+done
+
 if [[ "$(LC_ALL=C rg -F -c 'cost = (me->query_skill(skl_id, 1) / 2 + 100) * 20;' \
         "$WORK_ROOT/payload/cmds/skill/derive.c")" != "1" ]]; then
   echo "Jiqu absorption multiplier patch validation failed." >&2
+  exit 1
+fi
+
+if [[ "$(LC_ALL=C rg -U -c '^\s*if \(objectp\(user\)\)\n\s+destruct\(user\);' \
+        "$WORK_ROOT/payload/adm/daemons/logind.c")" != "1" ]]; then
+  echo "New-character login cleanup patch validation failed." >&2
   exit 1
 fi
 
@@ -124,6 +290,73 @@ if [[ "$cultivation_success_boost_count" != "2" ]] ||
      "$WORK_ROOT/payload/cmds/skill/breakup.c" \
      "$WORK_ROOT/payload/cmds/skill/animaout.c"; then
   echo "Cultivation success-rate boost validation failed." >&2
+  exit 1
+fi
+
+for yitian_npc in aer asan; do
+  if [[ "$(LC_ALL=C rg -U -c 'destruct\(this_object\(\)\);\n\s+return;' \
+        "$WORK_ROOT/payload/d/tulong/yitian/npc/$yitian_npc.c")" != "1" ]]; then
+    echo "Yitian duel death-flow patch validation failed: $yitian_npc" >&2
+    exit 1
+  fi
+done
+
+if [[ "$(LC_ALL=C rg -F -c 'replace_string(msg, "\n", NOR "\n")' \
+      "$WORK_ROOT/payload/kungfu/skill/qiankun-danuoyi.c")" != "4" ]] ||
+   LC_ALL=C rg -q 'msg = HI[GY] \+ msg \+ NOR;' \
+     "$WORK_ROOT/payload/kungfu/skill/qiankun-danuoyi.c"; then
+  echo "Qiankun Danuoyi status-packet framing patch validation failed." >&2
+  exit 1
+fi
+
+if [[ "$(LC_ALL=C rg -U -c 'destruct\(ob\);\n\s+return;' \
+      "$WORK_ROOT/payload/clone/user/comb_ob.c")" != "1" ]] ||
+   [[ "$(LC_ALL=C rg -U -c 'if \(objectp\(ob\)\)\n\s+ob->delete_temp\("fight_team"\);' \
+      "$WORK_ROOT/payload/clone/user/comb_ob.c")" != "2" ]]; then
+  echo "Combined-combat object lifetime patch validation failed." >&2
+  exit 1
+fi
+
+if [[ "$(LC_ALL=C rg -F -c 'destruct(ob);' \
+      "$WORK_ROOT/payload/cmds/arch/register.c")" != "1" ]] ||
+   [[ "$(LC_ALL=C rg -U -c 'if \(! body\)\n\s+return 0;' \
+      "$WORK_ROOT/payload/cmds/arch/register.c")" != "1" ]]; then
+  echo "Registration object lifetime patch validation failed." >&2
+  exit 1
+fi
+
+if [[ "$(LC_ALL=C rg -F -c \
+      'HIG "VIP Jiuyang reward book restored." NOR "\n"' \
+      "$WORK_ROOT/payload/adm/npc/wizard.c")" != "1" ]] ||
+   LC_ALL=C rg -q 'VIP Jiuyang reward book restored\\n" NOR' \
+     "$WORK_ROOT/payload/adm/npc/wizard.c"; then
+  echo "Jiuyang repair status-packet framing patch validation failed." >&2
+  exit 1
+fi
+
+for quest_command in cmds/usr/fly.c cmds/imm/goto.c cmds/std/kill.c; do
+  if [[ "$(LC_ALL=C rg -F -c 'if (arg == "quest")' \
+        "$WORK_ROOT/payload/$quest_command")" != "1" ]] ||
+     [[ "$(LC_ALL=C rg -F -c 'quest = me->query("quest");' \
+        "$WORK_ROOT/payload/$quest_command")" != "1" ]] ||
+     [[ "$(LC_ALL=C rg -F -c 'quest = me->query("bquest");' \
+        "$WORK_ROOT/payload/$quest_command")" != "1" ]] ||
+     [[ "$(LC_ALL=C rg -F -c '! stringp(quest["id"])' \
+        "$WORK_ROOT/payload/$quest_command")" != "1" ]]; then
+    echo "Quest target command patch validation failed: $quest_command" >&2
+    exit 1
+  fi
+done
+
+quest_argument_count="$(LC_ALL=C rg -F -o 'arg = quest["id"];' \
+  "$WORK_ROOT/payload/cmds/imm/goto.c" \
+  "$WORK_ROOT/payload/cmds/std/kill.c" | wc -l | tr -d ' ')"
+if [[ "$quest_argument_count" != "2" ]] ||
+   [[ "$(LC_ALL=C rg -F -c 'goto_inventory = 0;' \
+      "$WORK_ROOT/payload/cmds/imm/goto.c")" != "2" ]] ||
+   [[ "$(LC_ALL=C rg -F -c 'target = find_living(quest["id"]);' \
+      "$WORK_ROOT/payload/cmds/imm/goto.c")" != "1" ]]; then
+  echo "Quest goto/kill argument patch validation failed." >&2
   exit 1
 fi
 
@@ -301,6 +534,14 @@ fi
 
 if [[ -e "$WORK_ROOT/payload/inherit/char/challenger.c.orig" ]]; then
   echo "Challenger patch left an unexpected backup file." >&2
+  exit 1
+fi
+
+if [[ "$(LC_ALL=C rg -F -c 'lv = 220;' \
+      "$WORK_ROOT/payload/adm/daemons/boss/challenge.c")" != "1" ]] ||
+   LC_ALL=C rg -F -q 'lv = 120;' \
+     "$WORK_ROOT/payload/adm/daemons/boss/challenge.c"; then
+  echo "Challenger level patch validation failed." >&2
   exit 1
 fi
 

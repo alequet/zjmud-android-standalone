@@ -52,8 +52,24 @@ SHA-256: 2eee2ab12f81a3a7a7f5824a552f85f9d287c6d3dbfb03c4b1e2c0bfc2578ba0
 10. 打成单一 payload 归档，作为 APK asset。
 
 当前入口为 `tools/import_zjmud.sh`。归档使用排序条目、固定时间戳和无扩展属性的标准
-ZIP；必须能被 Java `ZipInputStream` 完整读出 11,271 个文件。当前确定性 SHA-256 为
-`bc078b0fb64d2a5b85ae673a77ed58784b31fb963bb34fbe6f70ed14b074221a`。
+ZIP；必须能被 Java `ZipInputStream` 完整读出 12,083 个条目。当前确定性 SHA-256 为
+`e2c4e388d8d0b7d240ceb6708933a73fcd6db6f840156a1ead60599b4c5b8fd5`。
+
+导入时还必须确认 5 份 AI 分时日程、角色活动、自检接口、结构化 `ask` hook、事件/指标 API、管理命令、
+隔离测试房间/木桩和所有
+日程房间均已进入 payload；运行后再执行 `aiplayer validate` 检查房间安全属性和有界 BFS
+往返可达性，静态“文件存在”不能替代运行时路径校验。
+
+导入器把 `/adm/daemons/securityd` 去重后固定为 preload 第一项，并断言
+`/adm/daemons/ai_playerd` 只出现一次。发布前必须运行：
+
+```bash
+tools/test_ai_player_startup.sh --yes
+adb forward tcp:3000 tcp:3000
+tools/ai_admin_smoke.py --scenarios
+tools/ai_admin_smoke.py --behaviors
+tools/test_ai_player_stability.py --duration 1800 --interval 60
+```
 
 对于 ZIP 中编码异常的文件名，不得由 Java `ZipInputStream` 猜测编码后直接重写。应先
 确定 FluffOS 实际访问的名字字节；若文件未被引用，可在 allowlist 中显式排除；若被引用，
