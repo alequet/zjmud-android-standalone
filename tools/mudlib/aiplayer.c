@@ -3,6 +3,9 @@
 #include <ansi.h>
 
 #define AI_PLAYER_D "/adm/daemons/ai_playerd"
+#define AI_TRAVEL_D "/adm/daemons/ai_travel"
+
+private int show_travel_route(string from, string to, string role);
 
 private string resolve_id(string value)
 {
@@ -301,6 +304,227 @@ private int show_validation()
 	return 1;
 }
 
+private int show_travel_schema()
+{
+	mapping schema;
+	mapping budget;
+
+	schema = AI_TRAVEL_D->query_schema();
+	budget = schema["budget"];
+	write(sprintf(
+		"AI_TRAVEL_SCHEMA capability=%s schema=%d max_nodes=%d max_depth=%d "
+		"max_cost=%d max_risk=%d max_transfers=%d max_time=%d max_retries=%d\n",
+		schema["capability_version"], schema["schema_version"],
+		schema["max_nodes"], schema["max_depth"], budget["max_cost"],
+		budget["max_risk"], budget["max_transfers"], budget["max_time"],
+		budget["max_retries"]));
+	return 1;
+}
+
+private int show_travel_validation()
+{
+	string *issues;
+	mapping stats;
+
+	issues = AI_TRAVEL_D->validate_graph();
+	stats = AI_TRAVEL_D->query_graph_stats();
+	if (! arrayp(issues) || ! sizeof(issues))
+		write(sprintf("AI_TRAVEL_VALIDATE status=passed regions=%d nodes=%d edges=%d routes=%d\n",
+			stats["regions"], stats["nodes"], stats["edges"], stats["routes"]));
+	else
+		write("AI_TRAVEL_VALIDATE status=failed issues=" + implode(issues, ",") + "\n");
+	return 1;
+}
+
+private int show_registered_travel_route(string route_id)
+{
+	mapping route;
+
+	route = AI_TRAVEL_D->query_route(route_id);
+	if (! mapp(route))
+		return notify_fail("没有这个注册旅行路线。\n");
+	return show_travel_route(route["from"], route["to"], route["role"]);
+}
+
+private int show_travel_node(string value)
+{
+	mapping node;
+
+	node = AI_TRAVEL_D->query_node(value);
+	if (! mapp(node))
+		return notify_fail("没有这个旅行节点。\n");
+	write(sprintf("AI_TRAVEL_NODE id=%s region=%s name=%s room=%s kind=%s enabled=%d safe=%d\n",
+		node["id"], node["region"], node["name"], node["room"], node["kind"],
+		node["enabled"], node["safe"]));
+	return 1;
+}
+
+private int show_travel_route(string from, string to, string role)
+{
+	mapping route;
+	string nodes;
+	string edges;
+
+	route = AI_TRAVEL_D->plan_route(from, to, role, 0);
+	if (! mapp(route))
+		return notify_fail("旅行规划器没有返回结果。\n");
+	nodes = arrayp(route["nodes"]) ? implode(route["nodes"], ">") : "";
+	edges = arrayp(route["edges"]) ? implode(route["edges"], ">") : "";
+	write(sprintf(
+		"AI_TRAVEL_ROUTE from=%s to=%s role=%s state=%s cancel_reason=%s "
+		"cost=%d risk=%d time=%d transfers=%d retries=%d nodes=%s edges=%s\n",
+		from, to, role, route["state"], route["cancel_reason"],
+		intp(route["total_cost"]) ? route["total_cost"] : 0,
+		intp(route["total_risk"]) ? route["total_risk"] : 0,
+		intp(route["total_time"]) ? route["total_time"] : 0,
+		intp(route["transfers"]) ? route["transfers"] : 0,
+		intp(route["retries"]) ? route["retries"] : 0, nodes, edges));
+	return 1;
+}
+
+private int show_travel_selftest()
+{
+	mapping report;
+	mapping checks;
+	string key;
+
+	report = AI_TRAVEL_D->selftest();
+	checks = report["checks"];
+	write(sprintf("AI_TRAVEL_SELFTEST capability=%s schema=%d status=%s\n",
+		report["capability_version"], report["schema_version"],
+		report["passed"] ? "passed" : "failed"));
+	foreach (key in keys(checks))
+		write(sprintf("  %s=%s\n", key, checks[key] ? "ok" : "fail"));
+	if (arrayp(report["issues"]) && sizeof(report["issues"]))
+		write("  issues=" + implode(report["issues"], ",") + "\n");
+	return report["passed"];
+}
+
+private int show_travel_status(string value)
+{
+	mapping status;
+	mapping schema;
+	string actor_id;
+
+	actor_id = resolve_id(value);
+	if (! stringp(actor_id) ||
+		! mapp(status = AI_TRAVEL_D->query_travel_status(actor_id)))
+		return notify_fail("没有这个 AI 玩家或旅行状态。\n");
+	schema = AI_TRAVEL_D->query_schema();
+	write(sprintf(
+		"AI_TRAVEL_STATUS actor=%s capability=%s schema=%d state=%s route=%s "
+		"node=%s edge_index=%d charged=%d refunded=%d retries=%d trigger=%s "
+		"event_seq=%d last_event=%s cancel_reason=%s\n",
+		actor_id, schema["capability_version"], status["schema_version"],
+		status["state"], status["route_id"],
+		status["current_node"], status["edge_index"], status["charged_total"],
+		status["refunded"], status["retries"],
+		stringp(status["trigger"]) ? status["trigger"] : "none",
+		intp(status["event_seq"]) ? status["event_seq"] : 0,
+		stringp(status["last_event"]) ? status["last_event"] : "none",
+		status["cancel_reason"]));
+	return 1;
+}
+
+private int show_travel_recovery(string value)
+{
+	mapping status;
+	mapping schema;
+	string actor_id;
+
+	actor_id = resolve_id(value);
+	if (! stringp(actor_id) ||
+		! mapp(status = AI_TRAVEL_D->query_travel_status(actor_id)))
+		return notify_fail("没有这个 AI 玩家或旅行状态。\n");
+	schema = AI_TRAVEL_D->query_schema();
+	write(sprintf("AI_TRAVEL_RECOVERY actor=%s capability=%s schema=%d state=%s route=%s "
+		"node=%s edge_index=%d charged=%d refunded=%d recovery=%s "
+		"migrated_from=%d event_seq=%d last_event=%s cancel_reason=%s\n",
+		actor_id, schema["capability_version"], status["schema_version"],
+		status["state"], status["route_id"],
+		status["current_node"], status["edge_index"], status["charged_total"],
+		status["refunded"], stringp(status["recovery"]) ? status["recovery"] : "none",
+		intp(status["migrated_from_schema"]) ? status["migrated_from_schema"] : 0,
+		intp(status["event_seq"]) ? status["event_seq"] : 0,
+		stringp(status["last_event"]) ? status["last_event"] : "none",
+		status["cancel_reason"]));
+	return 1;
+}
+
+private int run_travel_recovery(string value)
+{
+	mapping result;
+	string actor_id;
+
+	actor_id = resolve_id(value);
+	if (! stringp(actor_id) || ! mapp(result = AI_TRAVEL_D->recover_travel(actor_id)))
+		return notify_fail("无法恢复该 AI 玩家旅行。\n");
+	write(sprintf("AI_TRAVEL_RECOVER actor=%s state=%s route=%s node=%s edge_index=%d "
+		"charged=%d refunded=%d recovery=%s cancel_reason=%s\n",
+		actor_id, result["state"], stringp(result["route_id"]) ? result["route_id"] : "none",
+		stringp(result["current_node"]) ? result["current_node"] : "none",
+		intp(result["edge_index"]) ? result["edge_index"] : 0,
+		intp(result["charged_total"]) ? result["charged_total"] : 0,
+		intp(result["refunded"]) ? result["refunded"] : 0,
+		stringp(result["recovery"]) ? result["recovery"] : "none",
+		stringp(result["cancel_reason"]) ? result["cancel_reason"] : "none"));
+	return 1;
+}
+
+private int run_travel(string route_id, string mode)
+{
+	mapping result;
+	string fault_mode;
+	int seed_money;
+
+	if (stringp(mode) && member_array(mode,
+		({ "seed", "insufficient", "edge_disabled" })) == -1)
+		return notify_fail("旅行闭环模式必须是 seed、insufficient 或 edge_disabled。\n");
+	seed_money = mode == "seed" || mode == "edge_disabled";
+	fault_mode = mode == "insufficient" || mode == "edge_disabled" ? mode : 0;
+	result = AI_TRAVEL_D->run_registered_travel(route_id, seed_money, fault_mode);
+	if (! mapp(result))
+		return notify_fail("旅行执行器没有返回结果。\n");
+	write(sprintf(
+		"AI_TRAVEL_RUN route=%s actor=%s state=%s node=%s edge_index=%d "
+		"charged=%d refunded=%d retries=%d cancel_reason=%s\n",
+		route_id, stringp(result["actor_id"]) ? result["actor_id"] : "none",
+		result["state"], stringp(result["current_node"]) ? result["current_node"] : "none",
+		intp(result["edge_index"]) ? result["edge_index"] : 0,
+		intp(result["charged_total"]) ? result["charged_total"] : 0,
+		intp(result["refunded"]) ? result["refunded"] : 0,
+		intp(result["retries"]) ? result["retries"] : 0,
+		stringp(result["cancel_reason"]) ? result["cancel_reason"] : "none"));
+	return 1;
+}
+
+private int run_travel_schedule(string value, string period, string mode)
+{
+	mapping result;
+	string actor_id;
+
+	actor_id = resolve_id(value);
+	if (! stringp(actor_id) ||
+		member_array(period, ({ "morning", "day", "evening", "night" })) == -1 ||
+		(stringp(mode) && mode != "seed"))
+		return notify_fail("用法：aiplayer travel schedule <id> <morning|day|evening|night> [seed]\n");
+	result = AI_TRAVEL_D->run_schedule_period(actor_id, period, mode == "seed");
+	if (! mapp(result))
+		return notify_fail("旅行日程执行器没有返回结果。\n");
+	write(sprintf(
+		"AI_TRAVEL_SCHEDULE actor=%s period=%s state=%s route=%s node=%s "
+		"charged=%d refunded=%d trigger=%s event_seq=%d cancel_reason=%s\n",
+		actor_id, period, result["state"],
+		stringp(result["route_id"]) ? result["route_id"] : "none",
+		stringp(result["current_node"]) ? result["current_node"] : "none",
+		intp(result["charged_total"]) ? result["charged_total"] : 0,
+		intp(result["refunded"]) ? result["refunded"] : 0,
+		stringp(result["trigger"]) ? result["trigger"] : "none",
+		intp(result["event_seq"]) ? result["event_seq"] : 0,
+		stringp(result["cancel_reason"]) ? result["cancel_reason"] : "none"));
+	return 1;
+}
+
 private int show_selftest(string value)
 {
 	mapping profiles;
@@ -373,6 +597,55 @@ int main(object me, string arg)
 		write("AI 玩家档案已保存。\n");
 		return 1;
 	}
+	if (arg == "travel schema")
+		return show_travel_schema();
+	if (arg == "travel validate")
+		return show_travel_validation();
+	if (arg == "travel selftest")
+		return show_travel_selftest();
+	if (sscanf(arg, "travel recovery prepare %s %s", value, mode) == 2)
+	{
+		id = resolve_id(value);
+		if (! stringp(id) || member_array(mode, ({ "planned", "charged",
+		    "executing", "arrived", "legacy", "removed", "disabled", "invalid",
+		    "future", "legacy_invalid", "legacy_removed" })) == -1 ||
+		    ! AI_TRAVEL_D->prepare_recovery_test(id, mode))
+			return notify_fail("无法准备旅行恢复测试：模式必须是 planned、charged、executing、arrived、legacy、removed、disabled、invalid、future、legacy_invalid 或 legacy_removed。\n");
+		write(id + " 已准备旅行恢复测试 " + mode + "。\n");
+		return 1;
+	}
+	if (sscanf(arg, "travel recovery %s", value) == 1)
+		return show_travel_recovery(value);
+	if (sscanf(arg, "travel recover %s", value) == 1)
+		return run_travel_recovery(value);
+	if (sscanf(arg, "travel status %s", value) == 1)
+		return show_travel_status(value);
+	if (sscanf(arg, "travel schedule %s %s %s", value, id, mode) == 3)
+		return run_travel_schedule(value, id, mode);
+	if (sscanf(arg, "travel schedule %s %s", value, id) == 2)
+		return run_travel_schedule(value, id, 0);
+	if (sscanf(arg, "travel auto %s %s", value, id) == 2)
+	{
+		value = resolve_id(value);
+		if (! stringp(value) ||
+			member_array(id, ({ "morning", "day", "evening", "night" })) == -1 ||
+			! AI_TRAVEL_D->prepare_auto_schedule_test(value, id))
+			return notify_fail("无法准备自动旅行日程测试。\n");
+		write(value + " 已准备自动旅行日程测试 " + id + "。\n");
+		return 1;
+	}
+	if (sscanf(arg, "travel run %s %s", value, mode) == 2)
+		return run_travel(value, mode);
+	if (sscanf(arg, "travel run %s", value) == 1)
+		return run_travel(value, 0);
+	if (sscanf(arg, "travel inspect %s", value) == 1)
+		return show_travel_node(value);
+	if (sscanf(arg, "travel route %s %s %s", value, mode, id) == 3)
+		return show_travel_route(value, mode, id);
+	if (sscanf(arg, "travel route %s %s", value, mode) == 2)
+		return show_travel_route(value, mode, "traveler");
+	if (sscanf(arg, "travel route %s", value) == 1)
+		return show_registered_travel_route(value);
 	if (arg == "metrics")
 		return show_metrics(0);
 	if (sscanf(arg, "metrics %s", value) == 1)
@@ -471,11 +744,11 @@ int main(object me, string arg)
 		write(id + " 的行为状态、生命状态和位置已复位。\n");
 		return 1;
 	}
-	return notify_fail("用法：aiplayer [status|pause|resume|reload|save|metrics [id]|events <id>|recovery <id>|recovery prepare <id> <supplies|savepoint|legacy|invalid>|validate|selftest [id]|stability|scenario combat <id>|scenario defense <id> <defend|retreat|noexit|blocked|unconscious|death>|scenario status <id>|activity supplies <id>|activity supplies <id> seed|activity run <id> <activity>|inspect <id>|trace <id> <on|off>|home <id>|reset <id>]\n");
+	return notify_fail("用法：aiplayer [status|pause|resume|reload|save|travel schema|travel validate|travel selftest|travel inspect <node>|travel route <route_id>|travel route <from> <to> [role]|travel run <route_id> [seed]|travel status <id>|travel recovery <id>|travel recover <id>|travel recovery prepare <id> <planned|charged|executing|arrived|legacy|removed|disabled|invalid|future|legacy_invalid|legacy_removed>|metrics [id]|events <id>|recovery <id>|recovery prepare <id> <supplies|savepoint|legacy|invalid>|validate|selftest [id]|stability|scenario combat <id>|scenario defense <id> <defend|retreat|noexit|blocked|unconscious|death>|scenario status <id>|activity supplies <id>|activity supplies <id> seed|activity run <id> <activity>|inspect <id>|trace <id> <on|off>|home <id>|reset <id>]\n");
 }
 
 int help(object me)
 {
-	write("用法：aiplayer [status|pause|resume|reload|save|metrics [id]|events <id>|recovery <id>|recovery prepare <id> <supplies|savepoint|legacy|invalid>|validate|selftest [id]|stability|scenario combat <id>|scenario defense <id> <defend|retreat|noexit|blocked|unconscious|death>|scenario status <id>|activity supplies <id>|activity supplies <id> seed|activity run <id> <activity>|inspect <id>|trace <id> <on|off>|home <id>|reset <id>]\n");
+	write("用法：aiplayer [status|pause|resume|reload|save|travel schema|travel validate|travel selftest|travel inspect <node>|travel route <route_id>|travel route <from> <to> [role]|travel run <route_id> [seed]|travel status <id>|travel recovery <id>|travel recover <id>|travel recovery prepare <id> <planned|charged|executing|arrived|legacy|removed|disabled|invalid|future|legacy_invalid|legacy_removed>|metrics [id]|events <id>|recovery <id>|recovery prepare <id> <supplies|savepoint|legacy|invalid>|validate|selftest [id]|stability|scenario combat <id>|scenario defense <id> <defend|retreat|noexit|blocked|unconscious|death>|scenario status <id>|activity supplies <id>|activity supplies <id> seed|activity run <id> <activity>|inspect <id>|trace <id> <on|off>|home <id>|reset <id>]\n");
 	return 1;
 }

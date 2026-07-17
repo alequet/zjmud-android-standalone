@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import select
 import socket
 import sys
@@ -41,6 +42,7 @@ DEFENSE_SCENARIOS = (
 CREATE_CHARACTER = "\x1b0000008"
 LOGIN_SUCCEEDED = "\x1b0000007"
 WORLD_READY = "\x1b002"
+MONEY_RE = re.compile(r"携带货币：(\d+) 文")
 
 
 class MudClient:
@@ -75,6 +77,14 @@ class MudClient:
 def require(output: str, marker: str, context: str) -> None:
     if marker not in output:
         raise RuntimeError(f"{context}: expected {marker!r}\n{output[-3000:]}")
+
+
+def inspect_money(client: MudClient, ai_id: str) -> int:
+    output = client.command(f"aiplayer inspect {ai_id}", 0.8)
+    match = MONEY_RE.search(output)
+    if not match:
+        raise RuntimeError(f"unable to read carried money for {ai_id}:\n{output[-3000:]}")
+    return int(match.group(1))
 
 
 def login(client: MudClient, account: str, password: str, name: str) -> str:
@@ -113,6 +123,22 @@ def wait_for_activities(
             time.sleep(2)
     if pending:
         raise RuntimeError(f"activities did not finish with {outcome}: {', '.join(sorted(pending))}")
+
+
+def wait_for_travel_state(
+    client: MudClient,
+    ai_id: str,
+    marker: str,
+    timeout: int = 30,
+) -> str:
+    deadline = time.monotonic() + timeout
+    output = ""
+    while time.monotonic() < deadline:
+        output = client.command(f"aiplayer travel status {ai_id}", 0.8)
+        if marker in output:
+            return output
+        time.sleep(1)
+    raise RuntimeError(f"travel state did not reach {marker!r}:\n{output[-3000:]}")
 
 
 def run_behavior_checks(client: MudClient) -> None:
@@ -190,18 +216,162 @@ def main() -> int:
         help="Run the six-mode finite-defense matrix and the supply adapter scenario",
     )
     parser.add_argument("--behaviors", action="store_true", help="Run patrol, rest, and social activity checks")
+    parser.add_argument(
+        "--travel",
+        action="store_true",
+        help="Run the v2.1 single-actor registered travel closure",
+    )
     args = parser.parse_args()
 
     client = MudClient(args.host, args.port)
     scenarios_paused = False
     behaviors_running = False
+    travel_paused = False
     try:
         login(client, args.account, args.password, args.name)
         require(client.command("aiplayer status", 1.5), "AI 玩家正在运行", "aiplayer status")
         require(client.command("aiplayer validate", 3.0), "AI 配置校验通过", "aiplayer validate")
+        require(
+            client.command("aiplayer travel validate", 1.5),
+            "AI_TRAVEL_VALIDATE status=passed",
+            "aiplayer travel validate",
+        )
+        require(
+            client.command("aiplayer travel selftest", 1.5),
+            "AI_TRAVEL_SELFTEST capability=v2.4 schema=2 status=passed",
+            "aiplayer travel selftest",
+        )
+        travel_route = client.command(
+            "aiplayer travel route test_city_to_wudang", 1.5
+        )
+        require(travel_route, "state=planned", "aiplayer travel route")
+        require(travel_route, "cost=120 risk=1 time=960", "aiplayer travel route budgets")
         selftest = client.command("aiplayer selftest", 3.0)
         for ai_id in AI_IDS:
             require(selftest, f"{ai_id}: 通过", "aiplayer selftest")
+
+        if args.travel:
+            client.command("aiplayer pause", 0.8)
+            travel_paused = True
+            client.command("aiplayer reset ai_qingfeng", 1.0)
+            before_arrival = inspect_money(client, "ai_qingfeng")
+            travel = client.command(
+                "aiplayer travel run qingfeng_city_to_wudang seed", 2.0
+            )
+            require(travel, "state=arrived", "v2.1 travel arrival")
+            require(travel, "node=wudang_gate", "v2.1 travel destination")
+            require(travel, "charged=120 refunded=0 retries=0", "v2.1 travel budget")
+            after_arrival = inspect_money(client, "ai_qingfeng")
+            expected_arrival = before_arrival
+            if after_arrival != expected_arrival:
+                raise RuntimeError(
+                    f"v2.1 travel charged wrong amount: before={before_arrival} "
+                    f"after={after_arrival} expected={expected_arrival}"
+                )
+            travel_status = client.command("aiplayer travel status ai_qingfeng", 1.0)
+            require(travel_status, "capability=v2.4 schema=2 state=arrived", "v2.1 travel status")
+            require(travel_status, "route=qingfeng_city_to_wudang", "v2.1 travel checkpoint")
+
+            client.command("aiplayer reset ai_qingfeng", 1.0)
+            before_insufficient = inspect_money(client, "ai_qingfeng")
+            insufficient = client.command(
+                "aiplayer travel run qingfeng_city_to_wudang insufficient", 2.0
+            )
+            require(insufficient, "state=cancelled", "v2.1 insufficient funds")
+            require(insufficient, "node=city_station", "v2.1 insufficient safe return")
+            require(
+                insufficient,
+                "charged=0 refunded=0 retries=0 cancel_reason=insufficient_funds",
+                "v2.1 insufficient settlement",
+            )
+            after_insufficient = inspect_money(client, "ai_qingfeng")
+            if after_insufficient != before_insufficient:
+                raise RuntimeError(
+                    f"v2.1 insufficient funds changed balance: before={before_insufficient} "
+                    f"after={after_insufficient}"
+                )
+
+            client.command("aiplayer reset ai_qingfeng", 1.0)
+            before_disabled = inspect_money(client, "ai_qingfeng")
+            disabled = client.command(
+                "aiplayer travel run qingfeng_city_to_wudang edge_disabled", 2.0
+            )
+            require(disabled, "state=cancelled", "v2.1 disabled edge")
+            require(disabled, "node=city_station", "v2.1 disabled safe return")
+            require(
+                disabled,
+                "charged=120 refunded=1 retries=0 cancel_reason=edge_disabled",
+                "v2.1 disabled refund",
+            )
+            after_disabled = inspect_money(client, "ai_qingfeng")
+            expected_disabled = before_disabled
+            if after_disabled != expected_disabled:
+                raise RuntimeError(
+                    f"v2.1 disabled edge refund mismatch: before={before_disabled} "
+                    f"after={after_disabled} expected={expected_disabled}"
+                )
+
+            client.command("aiplayer reset ai_qingfeng", 1.0)
+            before_schedule = inspect_money(client, "ai_qingfeng")
+            outbound = client.command(
+                "aiplayer travel schedule ai_qingfeng day seed", 2.0
+            )
+            require(outbound, "state=arrived", "v2.2 outbound schedule")
+            require(outbound, "route=qingfeng_city_to_wudang", "v2.2 outbound whitelist")
+            require(outbound, "node=wudang_gate", "v2.2 outbound destination")
+            require(outbound, "trigger=schedule_test_day event_seq=4", "v2.2 outbound events")
+            if inspect_money(client, "ai_qingfeng") != before_schedule:
+                raise RuntimeError("v2.2 outbound test funding changed actor balance")
+
+            inbound = client.command(
+                "aiplayer travel schedule ai_qingfeng morning seed", 2.0
+            )
+            require(inbound, "state=arrived", "v2.2 inbound schedule")
+            require(inbound, "route=qingfeng_wudang_to_city", "v2.2 inbound whitelist")
+            require(inbound, "node=city_station", "v2.2 inbound destination")
+            require(inbound, "trigger=schedule_test_morning event_seq=4", "v2.2 inbound events")
+            if inspect_money(client, "ai_qingfeng") != before_schedule:
+                raise RuntimeError("v2.2 inbound test funding changed actor balance")
+
+            denied_schedule = client.command(
+                "aiplayer travel schedule ai_wantang day seed", 1.0
+            )
+            require(denied_schedule, "state=cancelled", "v2.2 unapproved actor")
+            require(
+                denied_schedule,
+                "actor=ai_wantang period=day",
+                "v2.2 unapproved actor identity",
+            )
+            require(
+                denied_schedule,
+                "cancel_reason=unknown_route",
+                "v2.2 unapproved actor denial",
+            )
+
+            client.command("aiplayer reset ai_qingfeng", 1.0)
+            before_auto = inspect_money(client, "ai_qingfeng")
+            require(
+                client.command("aiplayer travel auto ai_qingfeng day", 1.0),
+                "已准备自动旅行日程测试 day",
+                "v2.2 prepare auto schedule",
+            )
+            client.command("aiplayer resume", 0.8)
+            travel_paused = False
+            auto_status = wait_for_travel_state(
+                client,
+                "ai_qingfeng",
+                "state=arrived route=qingfeng_city_to_wudang",
+                30,
+            )
+            require(auto_status, "trigger=schedule_day", "v2.2 automatic trigger")
+            require(auto_status, "event_seq=4 last_event=arrived", "v2.2 automatic events")
+            if inspect_money(client, "ai_qingfeng") != before_auto:
+                raise RuntimeError("v2.2 automatic test funding changed actor balance")
+            client.command("aiplayer pause", 0.8)
+            travel_paused = True
+            client.command("aiplayer reset ai_qingfeng", 1.0)
+            client.command("aiplayer resume", 0.8)
+            travel_paused = False
 
         if args.behaviors:
             behaviors_running = True
@@ -239,6 +409,12 @@ def main() -> int:
         if scenarios_paused:
             try:
                 client.command("aiplayer resume", 1.0)
+            except OSError:
+                pass
+        if travel_paused:
+            try:
+                client.command("aiplayer reset ai_qingfeng", 0.5)
+                client.command("aiplayer resume", 0.5)
             except OSError:
                 pass
         client.close()

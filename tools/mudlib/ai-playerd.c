@@ -26,6 +26,7 @@
 #define AI_TEST_BLOCKED_ROOM "/d/standalone/ai_test_blocked"
 #define AI_TEST_SAFE_ROOM "/d/standalone/ai_test_safe"
 #define AI_TEST_DUMMY "/clone/npc/ai_test_dummy"
+#define AI_TRAVEL_D "/adm/daemons/ai_travel"
 
 #define ADAPTER_SUCCESS 1
 #define ADAPTER_PRECONDITION_FAILED -1
@@ -540,6 +541,13 @@ object *query_ai_players()
 			result += ({ actors[id] });
 	}
 	return result;
+}
+
+object query_ai_player(string id)
+{
+	if (! mapp(profiles[id]) || ! objectp(actors[id]))
+		return 0;
+	return actors[id];
 }
 
 mapping query_player_status(string id)
@@ -3479,8 +3487,18 @@ private void think(object me, mapping profile)
 	}
 
 	current = base_name(environment(me));
+	if (AI_TRAVEL_D->should_hold_for_schedule(me->query("ai/profile"), current))
+	{
+		set_goal(me, "等候班次", "等待批准的跨区域交通");
+		return;
+	}
 	if (! valid_room_file(current, profile["zone"]))
 	{
+		if (AI_TRAVEL_D->is_approved_remote(me->query("ai/profile"), current))
+		{
+			set_goal(me, "异地停留", "按批准跨区域日程停留");
+			return;
+		}
 		set_goal(me, "返回常驻点", "离开不安全房间");
 		me->move(profile["home"]);
 		remember_room(me);

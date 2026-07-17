@@ -8,14 +8,19 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.JavaScriptReplyProxy
 import androidx.webkit.ProxyConfig
 import androidx.webkit.ProxyController
@@ -37,6 +42,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         showStatus("正在准备本地游戏资源...")
         requestNotificationPermission()
@@ -124,8 +130,35 @@ class MainActivity : Activity() {
         }
 
         webView = gameView
-        setContentView(gameView)
+        setInsetAwareContentView(gameView)
         gameView.loadUrl(GAME_URL)
+    }
+
+    private fun setInsetAwareContentView(content: View) {
+        val root = FrameLayout(this).apply {
+            addView(
+                content,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                ),
+            )
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, windowInsets ->
+            val safeInsets = windowInsets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or
+                    WindowInsetsCompat.Type.displayCutout(),
+            )
+            view.setPadding(
+                safeInsets.left,
+                safeInsets.top,
+                safeInsets.right,
+                safeInsets.bottom,
+            )
+            windowInsets
+        }
+        setContentView(root)
+        ViewCompat.requestApplyInsets(root)
     }
 
     private fun localResponse(loader: WebViewAssetLoader, uri: Uri): WebResourceResponse? {
@@ -160,7 +193,7 @@ class MainActivity : Activity() {
     }
 
     private fun showStatus(message: String) {
-        setContentView(TextView(this).apply {
+        setInsetAwareContentView(TextView(this).apply {
             gravity = Gravity.CENTER
             setPadding(48, 48, 48, 48)
             text = message

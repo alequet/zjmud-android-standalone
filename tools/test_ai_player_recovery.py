@@ -20,6 +20,7 @@ from ai_admin_smoke import (
     DEFAULT_NAME,
     DEFAULT_PASSWORD,
     MudClient,
+    inspect_money,
     login,
     require,
 )
@@ -46,7 +47,7 @@ STABILITY_PLAYER_RE = re.compile(
     r"action_failures=(\d+) route_failures=(\d+) relocations=(\d+) "
     r"respawns=(\d+) pending=(\d+) actions=(\d+)"
 )
-CASES = ("patrol", "rest", "social", "supplies", "combat", "savepoint", "migration")
+CASES = ("patrol", "rest", "social", "supplies", "combat", "savepoint", "migration", "travel")
 LIFECYCLE_CASES = (
     "force-stop",
     "low-memory",
@@ -529,6 +530,122 @@ def case_migration(args: argparse.Namespace, client: MudClient) -> MudClient:
     return client
 
 
+TRAVEL_RECOVERY_RE = re.compile(r"AI_TRAVEL_RECOVERY\s+([^\r\n]+)")
+TRAVEL_PAIR_RE = re.compile(r"(\w+)=([^\s]+)")
+
+
+def travel_recovery(client: MudClient) -> dict[str, str]:
+    output = client.command("aiplayer travel recovery ai_qingfeng", 0.7)
+    match = TRAVEL_RECOVERY_RE.search(output)
+    if not match:
+        raise RuntimeError(f"unable to parse travel recovery state:\n{output[-2000:]}")
+    state = dict(TRAVEL_PAIR_RE.findall(match.group(1)))
+    if state.get("capability") != "v2.4":
+        raise RuntimeError(f"travel contract version changed: {state}")
+    return state
+
+
+def wait_travel(
+    client: MudClient,
+    predicate,
+    description: str,
+    timeout: int = 60,
+) -> dict[str, str]:
+    deadline = time.monotonic() + timeout
+    latest: dict[str, str] = {}
+    while time.monotonic() < deadline:
+        latest = travel_recovery(client)
+        if predicate(latest):
+            return latest
+        time.sleep(0.5)
+    raise RuntimeError(f"travel did not reach {description}: {latest}")
+
+
+def case_travel(args: argparse.Namespace, client: MudClient) -> MudClient:
+    active_modes = ("planned", "charged", "executing", "legacy")
+    for mode in active_modes:
+        reset(client, "ai_qingfeng")
+        before = inspect_money(client, "ai_qingfeng")
+        require(
+            client.command(f"aiplayer travel recovery prepare ai_qingfeng {mode}", 0.8),
+            f"已准备旅行恢复测试 {mode}",
+            f"prepare travel {mode}",
+        )
+        prepared = travel_recovery(client)
+        if mode == "charged" and prepared.get("state") != "charged":
+            raise RuntimeError(f"charged checkpoint was not persisted: {prepared}")
+        if mode == "executing" and prepared.get("state") != "executing":
+            raise RuntimeError(f"executing checkpoint was not persisted: {prepared}")
+        prepared_money = inspect_money(client, "ai_qingfeng")
+        client = kill_and_restart(args, client)
+        final = wait_travel(
+            client,
+            lambda state: state.get("state") == "arrived",
+            f"arrived after {mode} recovery",
+        )
+        if final.get("schema") != "2":
+            raise RuntimeError(f"travel recovery did not converge to schema 2: {final}")
+        if final.get("node") != "wudang_gate" or final.get("edge_index") != "2":
+            raise RuntimeError(f"travel recovery stopped at the wrong checkpoint: {final}")
+        after = inspect_money(client, "ai_qingfeng")
+        expected = before
+        if after != expected:
+            raise RuntimeError(
+                f"travel recovery charged twice or skipped fare for {mode}: "
+                f"before={before} prepared={prepared_money} after={after} expected={expected}"
+            )
+        if mode == "legacy" and final.get("recovery") != "migrated":
+            raise RuntimeError(f"legacy travel checkpoint was not migrated: {final}")
+
+    reset(client, "ai_qingfeng")
+    require(
+        client.command("aiplayer travel recovery prepare ai_qingfeng arrived", 0.8),
+        "已准备旅行恢复测试 arrived",
+        "prepare idempotent arrival",
+    )
+    arrived_before = travel_recovery(client)
+    money_before = inspect_money(client, "ai_qingfeng")
+    client = kill_and_restart(args, client)
+    arrived_after = wait_travel(
+        client,
+        lambda state: state.get("state") == "arrived",
+        "idempotent arrived checkpoint",
+    )
+    if arrived_after.get("schema") != "2":
+        raise RuntimeError(f"arrived checkpoint did not retain schema 2: {arrived_after}")
+    if arrived_after.get("event_seq") != arrived_before.get("event_seq"):
+        raise RuntimeError(f"arrived recovery replayed movement events: {arrived_before} -> {arrived_after}")
+    if inspect_money(client, "ai_qingfeng") != money_before:
+        raise RuntimeError("arrived recovery changed the actor balance")
+
+    failure_matrix = (
+        ("removed", "route_removed"),
+        ("disabled", "route_disabled"),
+        ("invalid", "unknown_node"),
+        ("future", "unsupported_schema"),
+        ("legacy_invalid", "migration_failed"),
+        ("legacy_removed", "legacy_cancelled"),
+    )
+    for mode, reason in failure_matrix:
+        reset(client, "ai_qingfeng")
+        require(
+            client.command(f"aiplayer travel recovery prepare ai_qingfeng {mode}", 0.8),
+            f"已准备旅行恢复测试 {mode}",
+            f"prepare travel {mode}",
+        )
+        client = kill_and_restart(args, client)
+        cancelled = wait_travel(
+            client,
+            lambda state: state.get("state") == "cancelled",
+            f"cancelled {mode} travel",
+        )
+        if cancelled.get("schema") != "2":
+            raise RuntimeError(f"{mode} travel did not converge to schema 2: {cancelled}")
+        if cancelled.get("cancel_reason") != reason or cancelled.get("node") != "city_station":
+            raise RuntimeError(f"{mode} travel did not safely converge: {cancelled}")
+    return client
+
+
 def lifecycle_force_stop(args: argparse.Namespace, client: MudClient) -> MudClient:
     reset(client, "ai_qingfeng")
     require(
@@ -788,6 +905,7 @@ def main() -> int:
         "combat": case_combat,
         "savepoint": case_savepoint,
         "migration": case_migration,
+        "travel": case_travel,
     }
     lifecycle_handlers = {
         "force-stop": lifecycle_force_stop,

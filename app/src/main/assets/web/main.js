@@ -1161,15 +1161,16 @@ function writeServerData(buf) {
 function adjustLayout() {
 	if(!loginok) return;
 
-//	scrh = $(window).height();
-	leftob.height(scrh-(96+chat_height)-longob.height()-hpsob.height()-tbarob.height());
-	rightob.height(scrh-(96+chat_height)-longob.height()-hpsob.height()-tbarob.height());
-	outob.height(scrh-(196+chat_height)-longob.height()-hpsob.height()-tbarob.height());
-	objob.height(scrh-(96+chat_height)-longob.height()-actsob.height()-hpsob.height()-tbarob.height());
+	scrh = Math.max(0, window.visualViewport ? window.visualViewport.height : $(window).height());
+	leftob.height(Math.max(0, scrh-(96+chat_height)-longob.height()-hpsob.height()-tbarob.height()));
+	rightob.height(Math.max(0, scrh-(96+chat_height)-longob.height()-hpsob.height()-tbarob.height()));
+	outob.height(Math.max(0, scrh-(196+chat_height)-longob.height()-hpsob.height()-tbarob.height()));
+	objob.height(Math.max(0, scrh-(96+chat_height)-longob.height()-actsob.height()-hpsob.height()-tbarob.height()));
 	mycmdsob.css("bottom",42+hpsob.height());
 };
 
 $(window).resize(adjustLayout);
+if (window.visualViewport) window.visualViewport.addEventListener("resize", adjustLayout);
 
 $(document).ready(function(){
 	document.title = titled;

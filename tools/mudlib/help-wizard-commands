@@ -199,6 +199,17 @@ aiplayer pause       暂停 AI 日常行为
 aiplayer resume      恢复 AI 日常行为
 aiplayer save        保存全部 AI 玩家
 aiplayer validate    校验 AI 配置和路线
+aiplayer travel schema   查看冻结的 v2.4 旅行 schema、预算和上限
+aiplayer travel validate 校验区域图、节点和交通边
+aiplayer travel selftest 执行旅行规划确定性自检
+aiplayer travel inspect <节点> 查看旅行节点
+aiplayer travel route <路线ID> 规划注册路线
+aiplayer travel run <路线ID> [seed] 执行 v2.1 单角色路线
+aiplayer travel status <ID> 查看旅行检查点
+aiplayer travel schedule <ID> <时段> [seed] 验证批准日程
+aiplayer travel recovery <ID> 查看恢复与迁移检查点
+aiplayer travel recover <ID> 显式恢复未完成旅行
+aiplayer travel recovery prepare <ID> <模式> 注入管理员恢复回归状态
 aiplayer selftest [ID] 执行非破坏性自检
 aiplayer inspect <ID>  查看单个 AI
 aiplayer metrics [ID]  查看运行指标
@@ -258,4 +269,3 @@ $HIC$八、单机版限制和命令陷阱$NOR$
 
 5. 对不熟悉的命令，先执行 which 和 help，确认
    实际命令文件、参数和影响后再操作。
-

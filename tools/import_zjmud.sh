@@ -87,10 +87,13 @@ iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/ai-playerd.c" \
   > "$WORK_ROOT/payload/adm/daemons/ai_playerd.c"
 iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/aiplayer.c" \
   > "$WORK_ROOT/payload/cmds/adm/aiplayer.c"
+iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/ai-travel.c" \
+  > "$WORK_ROOT/payload/adm/daemons/ai_travel.c"
 iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/help-wizard-commands" \
   > "$WORK_ROOT/payload/help/system/wizard_commands"
 chmod 0644 \
   "$WORK_ROOT/payload/adm/daemons/ai_playerd.c" \
+  "$WORK_ROOT/payload/adm/daemons/ai_travel.c" \
   "$WORK_ROOT/payload/cmds/adm/aiplayer.c" \
   "$WORK_ROOT/payload/help/system/wizard_commands"
 
@@ -128,6 +131,7 @@ chmod 0644 "$WORK_ROOT/payload/d/standalone/ai_test.c" \
   "$WORK_ROOT/payload/d/standalone/ai_test_safe.c" \
   "$WORK_ROOT/payload/clone/npc/ai_test_dummy.c"
 printf '\n%s\n' '/adm/daemons/ai_playerd' >> "$WORK_ROOT/payload/adm/etc/preload"
+printf '%s\n' '/adm/daemons/ai_travel' >> "$WORK_ROOT/payload/adm/etc/preload"
 install -m 0644 "$REPO_ROOT/tools/mudlib/offline-gchannel.c" \
   "$WORK_ROOT/payload/adm/daemons/network/services/gchannel.c"
 install -m 0644 "$REPO_ROOT/tools/mudlib/offline-messaged.c" \
@@ -190,15 +194,49 @@ if [[ "$(LC_ALL=C rg -F -c 'int     is_ai_player()' \
         "$WORK_ROOT/payload/cmds/std/ask.c")" != "1" ||
       "$(LC_ALL=C rg -c '^/adm/daemons/ai_playerd$' \
         "$WORK_ROOT/payload/adm/etc/preload")" != "1" ||
+      "$(LC_ALL=C rg -c '^/adm/daemons/ai_travel$' \
+        "$WORK_ROOT/payload/adm/etc/preload")" != "1" ||
       "$(LC_ALL=C rg -c '^/adm/daemons/securityd$' \
         "$WORK_ROOT/payload/adm/etc/preload")" != "1" ||
       "$(LC_ALL=C sed -n '1p' "$WORK_ROOT/payload/adm/etc/preload")" != \
         "/adm/daemons/securityd" ||
       "$(LC_ALL=C rg -F -c 'Persistent autonomous player actors' \
         "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'Frozen bounded region graph and approved real-world schedule for AI v2.4' \
+        "$WORK_ROOT/payload/adm/daemons/ai_travel.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c '#define AI_TRAVEL_SCHEMA_VERSION 2' \
+        "$WORK_ROOT/payload/adm/daemons/ai_travel.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c '#define AI_TRAVEL_CAPABILITY_VERSION "v2.4"' \
+        "$WORK_ROOT/payload/adm/daemons/ai_travel.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'mapping plan_route' \
+        "$WORK_ROOT/payload/adm/daemons/ai_travel.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'mapping selftest' \
+        "$WORK_ROOT/payload/adm/daemons/ai_travel.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'mapping run_registered_travel' \
+        "$WORK_ROOT/payload/adm/daemons/ai_travel.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'mapping run_schedule_period' \
+        "$WORK_ROOT/payload/adm/daemons/ai_travel.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'int prepare_auto_schedule_test' \
+        "$WORK_ROOT/payload/adm/daemons/ai_travel.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'int should_hold_for_schedule' \
+        "$WORK_ROOT/payload/adm/daemons/ai_travel.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'mapping recover_travel' \
+        "$WORK_ROOT/payload/adm/daemons/ai_travel.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'int prepare_recovery_test' \
+        "$WORK_ROOT/payload/adm/daemons/ai_travel.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'private mapping migrate_travel_state' \
+        "$WORK_ROOT/payload/adm/daemons/ai_travel.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'private mapping resume_travel' \
+        "$WORK_ROOT/payload/adm/daemons/ai_travel.c")" != "2" ||
+      "$(LC_ALL=C rg -F -c 'protected void heart_beat' \
+        "$WORK_ROOT/payload/adm/daemons/ai_travel.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'AI_TRAVEL_ACTOR "ai_qingfeng"' \
+        "$WORK_ROOT/payload/adm/daemons/ai_travel.c")" != "1" ||
       "$(LC_ALL=C rg -F -c 'private string find_route_step' \
         "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "2" ||
       "$(LC_ALL=C rg -F -c 'mapping query_player_status' \
+        "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
+      "$(LC_ALL=C rg -F -c 'object query_ai_player' \
         "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
       "$(LC_ALL=C rg -F -c 'mapping query_metrics' \
         "$WORK_ROOT/payload/adm/daemons/ai_playerd.c")" != "1" ||
