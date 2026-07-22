@@ -31,6 +31,7 @@
 
 - 盘点日期：2026-07-15。
 - 前十章 V2 重构日期：2026-07-17。
+- 世界命名、大衡两京、年代隔离、转世脱钩、AI 参与和分阶段语调的基线决策日期：2026-07-17。
 - 主要分析对象：`app/src/main/assets/runtime/zjmud-runtime.zip`，即当前 APK 实际发布的 mudlib。
 - 对照资料：仓库 `README.md`、`docs/ARCHITECTURE.md`、`tools/import_zjmud.sh` 及
   `tools/mudlib/` 下的单机版补丁。

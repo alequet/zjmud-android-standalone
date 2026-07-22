@@ -1,0 +1,12 @@
+--- a/adm/npc/wizard.c
++++ b/adm/npc/wizard.c
+@@ -609,7 +609,8 @@ int ask_character(string arg)
+ 					skills = keys(skl);
+ 					for(i=0;i<sizeof(skills);i++)
+ 					{
+-						if(!SKILL_D(skills[i])->valid_learn(me) && strsrch(skills[i],"-cognize")==-1)
++						if(!"/adm/daemons/character_skilld"->valid_for_character(skills[i], me->query("character")) &&
++						   strsrch(skills[i],"-cognize")==-1)
+ 						{
+ 							tell_object(me, to_chinese(skills[i])+"已经不符合学习条件，自动删除，如有错误请联系代码管理恢复。\n");
+ 							log_ufile(me,"viplvgift",me->query_skill(skills[i],1)+"级"+skills[i]+"洗点后已经不符合学习条件，自动删除。\n");

@@ -9,6 +9,7 @@ readonly SOURCE_ZIP="${1:-$HOME/zjmud-main.zip}"
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly ASSET_ROOT="$REPO_ROOT/app/src/main/assets"
 readonly ZJMUD_PATCH="$REPO_ROOT/tools/zjmud_patch/web_frontend.patch"
+readonly PLOT_SOURCE_ROOT="$REPO_ROOT/tools/mudlib/plot"
 readonly WORK_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/zjmud-import.XXXXXX")"
 
 cleanup() {
@@ -78,10 +79,24 @@ patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/full_character_s
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/challenger_runtime.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/challenger_level.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/wizard_reward_repair.patch"
+patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/character_skill_retention.patch"
+patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/attribute_skill_retention.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/cultivation_success_boost.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/runtime_error_fixes.patch"
 patch -s -p1 -d "$WORK_ROOT/payload" < "$REPO_ROOT/tools/mudlib/ai_players.patch"
 rm -f "$WORK_ROOT/payload/inherit/char/challenger.c.orig"
+
+wizard_character_utf8="$WORK_ROOT/wizard-character.utf8"
+iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/adm/npc/wizard.c" > "$wizard_character_utf8"
+perl -0pi -e 's/注意：改变性格之后不符合目前学习条件的技能将被删除！/注意：改变性格之后与新性格冲突的武学将被删除！/g; s/洗点后所有不符合学习条件的技能都将删除/洗点后先天属性不符合要求的武学将被删除/g; s/或大于39//g; s/\|\|tmpstr>39\|\|tmpint>39\|\|tmpcon>39\|\|tmpdex>39//g; s{(attribute_skilld"->valid_for_attributes\(skills\[i\], me\).*?)已经不符合学习条件，自动删除}{$1不符合当前先天属性要求，自动删除}s; s{(attribute_skilld"->valid_for_attributes\(skills\[i\], me\).*?)洗点后已经不符合学习条件，自动删除}{$1洗点后不符合先天属性要求，自动删除}s; s/心狠手辣，宗师心法-九阴神功/光明磊落，宗师心法-九阴神功/g; s/光明磊落，宗师心法-南海玄功/心狠手辣，宗师心法-南海玄功/g' \
+  "$wizard_character_utf8"
+iconv -f UTF-8 -t GB18030 "$wizard_character_utf8" > "$WORK_ROOT/payload/adm/npc/wizard.c"
+
+perform_utf8="$WORK_ROOT/perform.utf8"
+iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/cmds/skill/perform.c" > "$perform_utf8"
+perl -0pi -e 's{\n\t\tif \(me->query_skill\("count", 1\)\)\n\t\t\treturn notify_fail\(".*?"\);\n}{}s' "$perform_utf8"
+iconv -f UTF-8 -t GB18030 "$perform_utf8" > "$WORK_ROOT/payload/cmds/skill/perform.c"
+
 install -m 0644 "$REPO_ROOT/tools/mudlib/fullsave.c" "$WORK_ROOT/payload/feature/fullsave.c"
 iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/ai-playerd.c" \
   > "$WORK_ROOT/payload/adm/daemons/ai_playerd.c"
@@ -91,11 +106,74 @@ iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/ai-travel.c" \
   > "$WORK_ROOT/payload/adm/daemons/ai_travel.c"
 iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/help-wizard-commands" \
   > "$WORK_ROOT/payload/help/system/wizard_commands"
+iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/character-skilld.c" \
+  > "$WORK_ROOT/payload/adm/daemons/character_skilld.c"
+iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/attribute-skilld.c" \
+  > "$WORK_ROOT/payload/adm/daemons/attribute_skilld.c"
+iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/zuoyou-hubo.c" \
+  > "$WORK_ROOT/payload/kungfu/skill/zuoyou-hubo.c"
+for shop_item in xidian xingge; do
+  iconv -f UTF-8 -t GB18030 "$REPO_ROOT/tools/mudlib/shop/$shop_item.c" \
+    > "$WORK_ROOT/payload/clone/vip/$shop_item.c"
+done
 chmod 0644 \
   "$WORK_ROOT/payload/adm/daemons/ai_playerd.c" \
   "$WORK_ROOT/payload/adm/daemons/ai_travel.c" \
   "$WORK_ROOT/payload/cmds/adm/aiplayer.c" \
-  "$WORK_ROOT/payload/help/system/wizard_commands"
+  "$WORK_ROOT/payload/help/system/wizard_commands" \
+  "$WORK_ROOT/payload/adm/daemons/character_skilld.c" \
+  "$WORK_ROOT/payload/adm/daemons/attribute_skilld.c" \
+  "$WORK_ROOT/payload/kungfu/skill/zuoyou-hubo.c" \
+  "$WORK_ROOT/payload/clone/vip/xidian.c" \
+  "$WORK_ROOT/payload/clone/vip/xingge.c"
+
+while IFS= read -r -d '' plot_source; do
+  plot_relative="${plot_source#$PLOT_SOURCE_ROOT/}"
+  plot_target="$WORK_ROOT/payload/$plot_relative"
+  mkdir -p "$(dirname "$plot_target")"
+  iconv -f UTF-8 -t GB18030 "$plot_source" > "$plot_target"
+  chmod 0644 "$plot_target"
+done < <(find "$PLOT_SOURCE_ROOT" -type f -name '*.c' -print0 | LC_ALL=C sort -z)
+
+perl -0pi -e 's{(#define STORY_DIR\s+"/adm/daemons/story/"\n)}{$1#define PLOT_DIR        "/adm/daemons/plot/"\n}' \
+  "$WORK_ROOT/payload/include/globals.h"
+perl -0pi -e 's{(#define STORY_D\s+"/adm/daemons/storyd"\n)}{$1#define PLOT_D          "/adm/daemons/plotd"\n}' \
+  "$WORK_ROOT/payload/include/globals.h"
+perl -0pi -e 's{(#define PLOT_D\s+"/adm/daemons/plotd"\n)}{$1#define PLOT_COMBAT_D   "/adm/daemons/plotcombat"\n}' \
+  "$WORK_ROOT/payload/include/globals.h"
+
+for plot_menu in cmds/usr/mycmds.c cmds/usr/mycmds1.c; do
+  plot_menu_utf8="$WORK_ROOT/$(basename "$plot_menu").utf8"
+  iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/$plot_menu" > "$plot_menu_utf8"
+  perl -0pi -e 's{ZJSEP"b4:暂未"ZJBR"设定:look"}{ZJSEP"b4:剧情"ZJBR"日志:plot"}' \
+    "$plot_menu_utf8"
+  iconv -f UTF-8 -t GB18030 "$plot_menu_utf8" > "$WORK_ROOT/payload/$plot_menu"
+done
+
+post_officer_utf8="$WORK_ROOT/post_officer.utf8"
+iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/d/city/npc/post_officer.c" > "$post_officer_utf8"
+perl -0pi -e 's/string give_quest\(\);/string give_quest();\nstring plot_letter();\nstring plot_mark();/' "$post_officer_utf8"
+perl -0pi -e 's/"收信" : \(: receive_mail :\),/"收信" : (: receive_mail :),\n\t\t"乡书" : (: plot_letter :),\n\t\t"旧印" : (: plot_mark :),/' "$post_officer_utf8"
+perl -0pi -e 's/void init\(\)\n\{/string plot_letter()\n{\n\treturn "\/adm\/daemons\/plot\/origin_letter"->npc_notice(this_player());\n}\nvoid init()\n\{/' "$post_officer_utf8"
+perl -0pi -e 's/string plot_letter\(\)\n\{\n\treturn "\/adm\/daemons\/plot\/origin_letter"->npc_notice\(this_player\(\)\);\n\}/$&\nstring plot_mark()\n{\n\treturn "\/adm\/daemons\/plot\/returning_mark"->npc_notice(this_player());\n}/' "$post_officer_utf8"
+iconv -f UTF-8 -t GB18030 "$post_officer_utf8" > "$WORK_ROOT/payload/d/city/npc/post_officer.c"
+
+wumiao_utf8="$WORK_ROOT/wumiao.utf8"
+iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/d/city/wumiao.c" > "$wumiao_utf8"
+  perl -0pi -e 's/"每日签到"\s*:\s*"day_sign",/"每日签到" : "day_sign",\n\t\t"乡书旧闻" : "plot act origin_letter_01 notice",\n\t\t"旧印新痕" : "plot act returning_mark_02 branch_hook",\n\t\t"故园来客" : "plot act visitors_from_home_04 begin",\n\t\t"百川归处" : "plot act where_rivers_end_05 begin",/' "$wumiao_utf8"
+iconv -f UTF-8 -t GB18030 "$wumiao_utf8" > "$WORK_ROOT/payload/d/city/wumiao.c"
+
+for entry_room in d/city/kedian.c d/city/wumiao.c d/city/postofficer.c; do
+  entry_utf8="$WORK_ROOT/$(basename "$entry_room").entry.utf8"
+  iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/$entry_room" > "$entry_utf8"
+  perl -0pi -e 's/void init\(\)\n\{/void init()\n{\n\tstring plot_notice;\n\tplot_notice = "\/adm\/daemons\/plot\/origin_letter"->notify_entry(this_player());\n\tif (plot_notice != "") tell_object(this_player(), plot_notice + "\\n");/' "$entry_utf8"
+  iconv -f UTF-8 -t GB18030 "$entry_utf8" > "$WORK_ROOT/payload/$entry_room"
+done
+
+yamen_utf8="$WORK_ROOT/ymzhengting.utf8"
+iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/d/city/ymzhengting.c" > "$yamen_utf8"
+perl -0pi -e 's|(set\("objects", \(\[\n)|$1\t"\/d\/plot\/origin_letter\/npc\/tan_youji" : 1,\n|' "$yamen_utf8"
+iconv -f UTF-8 -t GB18030 "$yamen_utf8" > "$WORK_ROOT/payload/d/city/ymzhengting.c"
 
 help_topics_utf8="$WORK_ROOT/help-topics.utf8"
 iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/help/tit/topics" \
@@ -132,6 +210,8 @@ chmod 0644 "$WORK_ROOT/payload/d/standalone/ai_test.c" \
   "$WORK_ROOT/payload/clone/npc/ai_test_dummy.c"
 printf '\n%s\n' '/adm/daemons/ai_playerd' >> "$WORK_ROOT/payload/adm/etc/preload"
 printf '%s\n' '/adm/daemons/ai_travel' >> "$WORK_ROOT/payload/adm/etc/preload"
+printf '%s\n' '/adm/daemons/plotcombat' >> "$WORK_ROOT/payload/adm/etc/preload"
+printf '%s\n' '/adm/daemons/plotd' >> "$WORK_ROOT/payload/adm/etc/preload"
 install -m 0644 "$REPO_ROOT/tools/mudlib/offline-gchannel.c" \
   "$WORK_ROOT/payload/adm/daemons/network/services/gchannel.c"
 install -m 0644 "$REPO_ROOT/tools/mudlib/offline-messaged.c" \
@@ -300,6 +380,129 @@ if [[ "$(LC_ALL=C rg -F -c 'AI_STABILITY objects=%d players=%d profiles=%d pause
   exit 1
 fi
 
+for plot_file in \
+  adm/daemons/plotcombat.c \
+  adm/daemons/plotd.c \
+  adm/daemons/plot/origin_letter.c \
+  adm/daemons/plot/returning_mark.c \
+  adm/daemons/plot/silent_crossing.c \
+  adm/daemons/plot/visitors_from_home.c \
+  adm/daemons/plot/where_rivers_end.c \
+  cmds/usr/plot.c \
+  cmds/adm/plotadmin.c \
+  d/plot/origin_letter/warehouse.c \
+  d/plot/origin_letter/hall.c \
+  d/plot/origin_letter/grain_house.c \
+  d/plot/returning_mark/old_storehouse.c \
+  d/plot/returning_mark/mark_chamber.c \
+  d/plot/silent_crossing/boat_deck.c \
+  d/plot/silent_crossing/foredeck.c \
+  d/plot/silent_crossing/stern.c \
+  d/plot/silent_crossing/narrow_passage.c \
+  d/plot/silent_crossing/cargo_hold.c \
+  d/plot/silent_crossing/bilge.c \
+  d/plot/visitors_from_home/relay_court.c \
+  d/plot/visitors_from_home/post_road.c \
+  d/plot/where_rivers_end/instance_room.c \
+  d/plot/where_rivers_end/salt_gate.c \
+  d/plot/where_rivers_end/drain_tunnel.c \
+  d/plot/where_rivers_end/water_gate.c \
+  d/plot/where_rivers_end/inspection_yard.c \
+  d/plot/where_rivers_end/outer_gallery.c \
+  d/plot/where_rivers_end/assembly_floor.c \
+  d/plot/where_rivers_end/dark_cell.c \
+  d/plot/where_rivers_end/guard_walk.c \
+  d/plot/where_rivers_end/burning_archive.c \
+  d/plot/where_rivers_end/index_room.c \
+  d/plot/where_rivers_end/seal_chamber.c \
+  d/plot/origin_letter/npc/xu_sanniang.c \
+  d/plot/origin_letter/npc/zhou_shouyi.c \
+  d/plot/origin_letter/npc/tan_youji.c \
+  clone/plot/origin_letter/pei_jiu.c \
+  clone/plot/origin_letter/old_post_token.c \
+  clone/plot/returning_mark/meng_si.c \
+  clone/plot/returning_mark/qing_peng_ke.c \
+  clone/plot/returning_mark/wave_mark_rubbing.c \
+  clone/plot/silent_crossing/liu_dashao.c \
+  clone/plot/silent_crossing/a_he.c \
+  clone/plot/silent_crossing/luo_qiniang.c \
+  clone/plot/silent_crossing/relabelled_stub.c \
+  clone/plot/visitors_from_home/stone_seven.c \
+  clone/plot/visitors_from_home/hua_yaozi.c \
+  clone/plot/visitors_from_home/salt_invitation.c \
+  clone/plot/where_rivers_end/real_lu_xiaoshuan.c \
+  clone/plot/where_rivers_end/luo_qiniang.c \
+  clone/plot/where_rivers_end/wen_shouzhuo.c \
+  clone/plot/where_rivers_end/qimei_staff.c \
+  clone/plot/where_rivers_end/hometown_memorial.c; do
+  if [[ ! -f "$WORK_ROOT/payload/$plot_file" ]]; then
+    echo "Missing plot platform file: $plot_file" >&2
+    exit 1
+  fi
+done
+
+if [[ "$(LC_ALL=C rg -c '^/adm/daemons/plotd$' \
+        "$WORK_ROOT/payload/adm/etc/preload")" != "1" ]]; then
+  echo "Plot daemon preload validation failed." >&2
+  exit 1
+fi
+if [[ "$(LC_ALL=C rg -c '^/adm/daemons/plotcombat$' \
+        "$WORK_ROOT/payload/adm/etc/preload")" != "1" ]]; then
+  echo "Plot combat daemon preload validation failed." >&2
+  exit 1
+fi
+if [[ "$(LC_ALL=C rg -c '^#define PLOT_DIR[[:space:]]' \
+        "$WORK_ROOT/payload/include/globals.h")" != "1" ||
+      "$(LC_ALL=C rg -c '^#define PLOT_D[[:space:]]' \
+        "$WORK_ROOT/payload/include/globals.h")" != "1" ||
+      "$(LC_ALL=C rg -c '^#define PLOT_COMBAT_D[[:space:]]' \
+        "$WORK_ROOT/payload/include/globals.h")" != "1" ]]; then
+  echo "Plot global macro validation failed." >&2
+  exit 1
+fi
+if [[ "$(LC_ALL=C rg -F -c 'PLOT_SELFTEST ok=%d schema=%d arc=%s errors=%O' \
+        "$WORK_ROOT/payload/cmds/adm/plotadmin.c")" != "1" ]]; then
+  echo "Plot administrator command validation failed." >&2
+  exit 1
+fi
+if [[ "$(LC_ALL=C rg -F -c 'PLOT_COMBAT_SELFTEST ok=%d profiles=%d errors=%O' \
+        "$WORK_ROOT/payload/cmds/adm/plotadmin.c")" != "1" ]]; then
+  echo "Plot combat administrator validation failed." >&2
+  exit 1
+fi
+if [[ "$(iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/d/city/npc/post_officer.c" | \
+        LC_ALL=C rg -F -c '"乡书" : (: plot_letter :)')" != "1" ||
+      "$(iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/d/city/npc/post_officer.c" | \
+        LC_ALL=C rg -F -c '"旧印" : (: plot_mark :)')" != "1" ||
+      "$(iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/d/city/wumiao.c" | \
+        LC_ALL=C rg -F -c '"乡书旧闻" : "plot act origin_letter_01 notice"')" != "1" ||
+      "$(iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/d/city/wumiao.c" | \
+        LC_ALL=C rg -F -c '"旧印新痕" : "plot act returning_mark_02 branch_hook"')" != "1" ||
+      "$(iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/d/city/wumiao.c" | \
+        LC_ALL=C rg -F -c '"故园来客" : "plot act visitors_from_home_04 begin"')" != "1" ||
+      "$(iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/d/city/wumiao.c" | \
+        LC_ALL=C rg -F -c '"百川归处" : "plot act where_rivers_end_05 begin"')" != "1" ||
+      "$(iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/d/city/ymzhengting.c" | \
+        LC_ALL=C rg -F -c '"/d/plot/origin_letter/npc/tan_youji" : 1')" != "1" ]]; then
+  echo "Plot chapter entry validation failed." >&2
+  exit 1
+fi
+if [[ "$(LC_ALL=C rg -F -c 'hometown_letters_01' \
+        "$WORK_ROOT/payload/adm/daemons/plotd.c")" != "1" ]] ||
+   LC_ALL=C rg -F -q 'hometown_letters_arc_01' \
+     "$WORK_ROOT/payload/adm/daemons/plotd.c"; then
+  echo "Plot stable identifier validation failed." >&2
+  exit 1
+fi
+
+for plot_menu in cmds/usr/mycmds.c cmds/usr/mycmds1.c; do
+  if [[ "$(iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/$plot_menu" | \
+          LC_ALL=C rg -F -c 'b4:剧情"ZJBR"日志:plot')" != "1" ]]; then
+    echo "Plot menu validation failed: $plot_menu" >&2
+    exit 1
+  fi
+done
+
 if [[ ! -f "$WORK_ROOT/payload/d/standalone/ai_test.c" ||
       ! -f "$WORK_ROOT/payload/d/standalone/ai_test_retreat.c" ||
       ! -f "$WORK_ROOT/payload/d/standalone/ai_test_blocked.c" ||
@@ -367,6 +570,89 @@ if [[ "$(LC_ALL=C rg -F -c 'cost = (me->query_skill(skl_id, 1) / 2 + 100) * 20;'
   echo "Jiqu absorption multiplier patch validation failed." >&2
   exit 1
 fi
+
+for shop_item in xidian xingge; do
+  shop_item_file="$WORK_ROOT/payload/clone/vip/$shop_item.c"
+  if [[ ! -f "$shop_item_file" ]] ||
+     [[ "$(LC_ALL=C rg -F -c 'set("yuanbao", 1);' "$shop_item_file")" != "1" ]] ||
+     [[ "$(LC_ALL=C rg -F -c 'set("only_do_effect", 1);' "$shop_item_file")" != "1" ]]; then
+    echo "Reset item shop contract validation failed: $shop_item" >&2
+    exit 1
+  fi
+done
+if [[ "$(LC_ALL=C rg -F -c 'add_action("do_reset", "xidian_dan");' \
+      "$WORK_ROOT/payload/clone/vip/xidian.c")" != "1" ]] ||
+   [[ "$(LC_ALL=C rg -F -c 'me->set("str", temp_str);' \
+      "$WORK_ROOT/payload/clone/vip/xidian.c")" != "1" ]] ||
+   [[ "$(LC_ALL=C rg -F -c 'add_action("do_reset", "xingge_dan");' \
+      "$WORK_ROOT/payload/clone/vip/xingge.c")" != "1" ]] ||
+   [[ "$(LC_ALL=C rg -F -c 'me->set("character", character);' \
+      "$WORK_ROOT/payload/clone/vip/xingge.c")" != "1" ]] ||
+   LC_ALL=C rg -q 'reset_(att|cha)_times' \
+      "$WORK_ROOT/payload/clone/vip/xidian.c" \
+      "$WORK_ROOT/payload/clone/vip/xingge.c"; then
+  echo "Reset item direct-operation validation failed." >&2
+  exit 1
+fi
+
+if LC_ALL=C rg -q 'temp_(str|int|con|dex) > 39' \
+     "$WORK_ROOT/payload/clone/vip/xidian.c" ||
+   iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/adm/npc/wizard.c" |
+     LC_ALL=C rg -q 'tmp(str|int|con|dex)>39|大于39'; then
+  echo "Reset attribute upper-cap removal validation failed." >&2
+  exit 1
+fi
+
+if iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/kungfu/skill/zuoyou-hubo.c" |
+     LC_ALL=C rg -q 'query\("int"\)|query_int\(' ||
+   LC_ALL=C rg -F -q '"zuoyou-hubo"' \
+     "$WORK_ROOT/payload/adm/daemons/attribute_skilld.c"; then
+  echo "Zuoyou-hubo intelligence-limit removal validation failed." >&2
+  exit 1
+fi
+
+if iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/cmds/skill/perform.c" |
+     LC_ALL=C rg -q 'query_skill\("count", 1\)|杂学太多'; then
+  echo "Zuoyou-hubo count-limit removal validation failed." >&2
+  exit 1
+fi
+
+if [[ "$(LC_ALL=C rg -F -c '"/adm/daemons/character_skilld"->valid_for_character' \
+      "$WORK_ROOT/payload/adm/npc/wizard.c")" != "1" ]] ||
+   [[ "$(LC_ALL=C rg -F -c '"/adm/daemons/attribute_skilld"->valid_for_attributes' \
+      "$WORK_ROOT/payload/adm/npc/wizard.c")" != "1" ]] ||
+   [[ "$(LC_ALL=C rg -F -c '"/adm/daemons/character_skilld"->valid_for_character' \
+      "$WORK_ROOT/payload/clone/vip/xingge.c")" != "1" ]] ||
+   LC_ALL=C rg -F -q 'SKILL_D(skills[i])->valid_learn(me)' \
+      "$WORK_ROOT/payload/adm/npc/wizard.c" \
+      "$WORK_ROOT/payload/clone/vip/xingge.c" \
+      "$WORK_ROOT/payload/clone/vip/xidian.c"; then
+  echo "Character skill retention integration validation failed." >&2
+  exit 1
+fi
+if [[ "$(LC_ALL=C rg -F -c '"/adm/daemons/attribute_skilld"->valid_for_attributes' \
+      "$WORK_ROOT/payload/clone/vip/xidian.c")" != "1" ]] ||
+   [[ "$(LC_ALL=C rg -F -c 'int valid_for_attributes(string skill, object me)' \
+      "$WORK_ROOT/payload/adm/daemons/attribute_skilld.c")" != "1" ]]; then
+  echo "Attribute skill retention integration validation failed." >&2
+  exit 1
+fi
+if [[ "$(iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/adm/npc/wizard.c" | \
+      LC_ALL=C rg -F -c '光明磊落，宗师心法-九阴神功')" != "1" ]] ||
+   [[ "$(iconv -f GB18030 -t UTF-8 "$WORK_ROOT/payload/adm/npc/wizard.c" | \
+      LC_ALL=C rg -F -c '心狠手辣，宗师心法-南海玄功')" != "1" ]]; then
+  echo "Wizard character menu validation failed." >&2
+  exit 1
+fi
+for character_skill in \
+  jiuyin-shengong bluesea-force never-defeated kuihua-mogong lonely-sword \
+  huagong-dafa poison xixing-dafa; do
+  if [[ "$(LC_ALL=C rg -F -c "\"$character_skill\"" \
+        "$WORK_ROOT/payload/adm/daemons/character_skilld.c")" != "1" ]]; then
+    echo "Missing character skill retention rule: $character_skill" >&2
+    exit 1
+  fi
+done
 
 if [[ "$(LC_ALL=C rg -U -c '^\s*if \(objectp\(user\)\)\n\s+destruct\(user\);' \
         "$WORK_ROOT/payload/adm/daemons/logind.c")" != "1" ]]; then
